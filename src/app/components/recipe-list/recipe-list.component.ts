@@ -1,6 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterModule } from '@angular/router';
 import { Recipe } from '../../models/recipe.model';
 import { RecipeService } from '../../services/recipe.service';
 import { RecipeDetailModalComponent } from '../recipe-detail-modal/recipe-detail-modal.component';
@@ -8,9 +9,26 @@ import { RecipeDetailModalComponent } from '../recipe-detail-modal/recipe-detail
 @Component({
   selector: 'app-recipe-list',
   standalone: true,
-  imports: [CommonModule, FormsModule, RecipeDetailModalComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    RouterModule,
+    RecipeDetailModalComponent,
+  ],
   template: `
     <div class="container mx-auto px-4 py-8">
+      <!-- Header with Navigation -->
+      <div class="flex items-center justify-between mb-8">
+        <h1 class="text-2xl font-bold text-gray-900">Recipes</h1>
+        <a
+          routerLink="/community"
+          class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700"
+        >
+          <i class="fas fa-users mr-2"></i>
+          Community Feed
+        </a>
+      </div>
+
       <!-- Search and Filter Section -->
       <div class="mb-8">
         <div
@@ -28,18 +46,20 @@ import { RecipeDetailModalComponent } from '../recipe-detail-modal/recipe-detail
               class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"
             ></i>
           </div>
-          <div class="flex gap-2">
-            <button
-              *ngFor="let category of categories"
-              (click)="toggleCategory(category)"
-              [class]="
-                selectedCategories.includes(category)
-                  ? 'px-4 py-2 bg-indigo-600 text-white rounded-full text-sm'
-                  : 'px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm hover:bg-gray-200'
-              "
-            >
-              {{ category }}
-            </button>
+          <div class="flex items-center gap-4">
+            <div class="flex gap-2">
+              <button
+                *ngFor="let category of categories"
+                (click)="toggleCategory(category)"
+                [class]="
+                  selectedCategories.includes(category)
+                    ? 'px-4 py-2 bg-indigo-600 text-white rounded-full text-sm'
+                    : 'px-4 py-2 bg-gray-100 text-gray-700 rounded-full text-sm hover:bg-gray-200'
+                "
+              >
+                {{ category }}
+              </button>
+            </div>
           </div>
         </div>
         <div class="flex flex-wrap gap-2">

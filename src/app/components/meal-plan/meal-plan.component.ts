@@ -280,340 +280,425 @@ interface DayPlan {
       <!-- Recipe Selection/Creation Modal -->
       <div
         *ngIf="showRecipeModal"
-        class="fixed inset-0 bg-black bg-opacity-50 flex items-start sm:items-center justify-center z-50 p-0 sm:p-4"
+        class="fixed inset-0 z-50 overflow-hidden md:overflow-y-auto"
       >
+        <!-- Modal Backdrop -->
         <div
-          class="bg-white w-full sm:rounded-lg sm:w-[95%] sm:max-w-2xl max-h-screen sm:max-h-[80vh] overflow-y-auto overscroll-contain"
+          class="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+        ></div>
+
+        <!-- Modal Content -->
+        <div
+          class="relative min-h-screen flex items-start justify-center p-0 sm:p-4"
         >
           <div
-            class="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex justify-between items-center"
+            class="relative bg-white w-full h-screen md:h-auto md:rounded-xl md:shadow-xl md:max-w-3xl md:my-8 overflow-hidden"
           >
-            <h2 class="text-lg sm:text-xl font-bold">
-              {{ isCreatingRecipe ? 'Create New Recipe' : 'Select Recipe' }}
-            </h2>
-            <button
-              (click)="closeModal()"
-              class="p-2 text-gray-500 hover:text-gray-700 touch-target"
-              aria-label="Close modal"
+            <!-- Modal Header -->
+            <div
+              class="sticky top-0 z-10 bg-white border-b border-gray-200 px-4 sm:px-6 py-4 flex items-center justify-between"
             >
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-
-          <div class="p-4 sm:p-6">
-            <!-- Mode Toggle -->
-            <div class="flex justify-center mb-6 bg-gray-100 rounded-lg p-1">
+              <h2 class="text-lg sm:text-xl font-semibold text-gray-900">
+                {{ isCreatingRecipe ? 'Create New Recipe' : 'Select Recipe' }}
+                <span class="block text-sm font-normal text-gray-500 mt-1">
+                  {{ selectedMealType | titlecase }} for
+                  {{ formatDate(selectedDate) }}
+                </span>
+              </h2>
               <button
-                (click)="isCreatingRecipe = false"
-                [class]="!isCreatingRecipe ? 'bg-white shadow-sm' : ''"
-                class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
+                (click)="closeModal()"
+                class="p-2 text-gray-400 hover:text-gray-500 rounded-full hover:bg-gray-100 transition-colors touch-target"
+                aria-label="Close modal"
               >
-                Select Existing
-              </button>
-              <button
-                (click)="isCreatingRecipe = true"
-                [class]="isCreatingRecipe ? 'bg-white shadow-sm' : ''"
-                class="px-4 py-2 rounded-md text-sm font-medium transition-colors"
-              >
-                Create New
+                <i class="fas fa-times text-xl"></i>
               </button>
             </div>
 
-            <!-- Create New Recipe Form -->
-            <div *ngIf="isCreatingRecipe" class="space-y-4">
-              <form
-                [formGroup]="recipeForm"
-                (ngSubmit)="createRecipe()"
-                class="space-y-4"
-              >
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <!-- Left Column -->
-                  <div class="space-y-4">
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700"
-                        >Recipe Title</label
-                      >
-                      <input
-                        type="text"
-                        formControlName="title"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        placeholder="Enter recipe title"
+            <!-- Modal Body -->
+            <div
+              class="overflow-y-auto overscroll-contain h-[calc(100vh-72px)] md:h-[calc(90vh-180px)]"
+            >
+              <div class="p-4 sm:p-6">
+                <!-- Mode Toggle -->
+                <div class="flex justify-center mb-6">
+                  <div class="inline-flex bg-gray-100 rounded-lg p-1">
+                    <button
+                      (click)="isCreatingRecipe = false"
+                      [class]="
+                        !isCreatingRecipe
+                          ? 'bg-white shadow-sm text-indigo-600'
+                          : 'text-gray-600'
+                      "
+                      class="px-4 py-2 rounded-md text-sm font-medium transition-all"
+                    >
+                      Browse Recipes
+                    </button>
+                    <button
+                      (click)="isCreatingRecipe = true"
+                      [class]="
+                        isCreatingRecipe
+                          ? 'bg-white shadow-sm text-indigo-600'
+                          : 'text-gray-600'
+                      "
+                      class="px-4 py-2 rounded-md text-sm font-medium transition-all"
+                    >
+                      Create New
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Search Bar (for existing recipes) -->
+                <div *ngIf="!isCreatingRecipe" class="mb-6">
+                  <div class="relative">
+                    <input
+                      type="text"
+                      [(ngModel)]="searchTerm"
+                      (ngModelChange)="filterRecipes()"
+                      placeholder="Search recipes..."
+                      class="w-full pl-10 pr-4 py-2.5 text-base rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                    <i
+                      class="fas fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                    ></i>
+                  </div>
+                </div>
+
+                <!-- Recipe Grid -->
+                <div
+                  *ngIf="!isCreatingRecipe"
+                  class="grid gap-4 grid-cols-1 sm:grid-cols-2"
+                >
+                  <div
+                    *ngFor="let recipe of filteredRecipes"
+                    (click)="selectRecipe(recipe)"
+                    class="group relative bg-gray-50 rounded-lg p-4 hover:bg-gray-100 transition-all cursor-pointer border border-gray-200 hover:border-indigo-300"
+                  >
+                    <div
+                      class="aspect-w-16 aspect-h-9 mb-3 rounded-lg overflow-hidden bg-gray-200"
+                    >
+                      <img
+                        [src]="recipe.imageUrl"
+                        [alt]="recipe.title"
+                        class="object-cover w-full h-full transform group-hover:scale-105 transition-transform duration-200"
                       />
                     </div>
-
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700"
-                        >Image URL</label
-                      >
-                      <input
-                        type="url"
-                        formControlName="imageUrl"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        placeholder="Enter image URL"
-                      />
-                      <p class="mt-1 text-sm text-gray-500">
-                        Provide a URL for your recipe image
-                      </p>
+                    <h3
+                      class="font-medium text-gray-900 group-hover:text-indigo-600 transition-colors line-clamp-1"
+                    >
+                      {{ recipe.title }}
+                    </h3>
+                    <div class="mt-2 flex items-center text-sm text-gray-600">
+                      <i class="fas fa-clock mr-1.5"></i>
+                      {{ recipe.prepTime + recipe.cookTime }} min
+                      <span class="mx-2">•</span>
+                      <span class="capitalize">{{ recipe.category }}</span>
                     </div>
+                  </div>
+                </div>
 
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700"
-                        >Category</label
-                      >
-                      <select
-                        formControlName="category"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      >
-                        <option value="">Select category</option>
-                        <option value="Breakfast">Breakfast</option>
-                        <option value="Lunch">Lunch</option>
-                        <option value="Dinner">Dinner</option>
-                        <option value="Snacks">Snacks</option>
-                      </select>
-                    </div>
-
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700"
-                        >Description</label
-                      >
-                      <textarea
-                        formControlName="description"
-                        rows="3"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        placeholder="Enter recipe description"
-                      ></textarea>
-                    </div>
-
-                    <div class="grid grid-cols-2 gap-4">
+                <!-- Create Recipe Form -->
+                <form
+                  *ngIf="isCreatingRecipe"
+                  [formGroup]="recipeForm"
+                  (ngSubmit)="createRecipe()"
+                  class="space-y-6"
+                >
+                  <!-- Basic Info -->
+                  <div class="grid gap-6 grid-cols-1 lg:grid-cols-2">
+                    <!-- Left Column -->
+                    <div class="space-y-4">
                       <div>
-                        <label class="block text-sm font-medium text-gray-700"
-                          >Prep Time (min)</label
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Title</label
                         >
                         <input
-                          type="number"
-                          formControlName="prepTime"
-                          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                          type="text"
+                          formControlName="title"
+                          class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Recipe title"
                         />
                       </div>
+
                       <div>
-                        <label class="block text-sm font-medium text-gray-700"
-                          >Cook Time (min)</label
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Description</label
                         >
-                        <input
-                          type="number"
-                          formControlName="cookTime"
-                          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
+                        <textarea
+                          formControlName="description"
+                          rows="3"
+                          class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="Recipe description"
+                        ></textarea>
+                      </div>
+
+                      <div class="grid grid-cols-2 gap-4">
+                        <div>
+                          <label
+                            class="block text-sm font-medium text-gray-700 mb-1"
+                            >Category</label
+                          >
+                          <select
+                            formControlName="category"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          >
+                            <option value="">Select</option>
+                            <option value="breakfast">Breakfast</option>
+                            <option value="lunch">Lunch</option>
+                            <option value="dinner">Dinner</option>
+                            <option value="snack">Snack</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label
+                            class="block text-sm font-medium text-gray-700 mb-1"
+                            >Difficulty</label
+                          >
+                          <select
+                            formControlName="difficulty"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          >
+                            <option value="Easy">Easy</option>
+                            <option value="Medium">Medium</option>
+                            <option value="Hard">Hard</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div class="grid grid-cols-3 gap-4">
+                        <div>
+                          <label
+                            class="block text-sm font-medium text-gray-700 mb-1"
+                            >Prep (min)</label
+                          >
+                          <input
+                            type="number"
+                            formControlName="prepTime"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label
+                            class="block text-sm font-medium text-gray-700 mb-1"
+                            >Cook (min)</label
+                          >
+                          <input
+                            type="number"
+                            formControlName="cookTime"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label
+                            class="block text-sm font-medium text-gray-700 mb-1"
+                            >Servings</label
+                          >
+                          <input
+                            type="number"
+                            formControlName="servings"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-4">
+                    <!-- Right Column -->
+                    <div class="space-y-4">
                       <div>
-                        <label class="block text-sm font-medium text-gray-700"
-                          >Servings</label
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Image URL</label
                         >
                         <input
-                          type="number"
-                          formControlName="servings"
-                          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                          type="url"
+                          formControlName="imageUrl"
+                          class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          placeholder="https://..."
                         />
                       </div>
-                      <div>
-                        <label class="block text-sm font-medium text-gray-700"
-                          >Difficulty</label
-                        >
-                        <select
-                          formControlName="difficulty"
-                          class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        >
-                          <option value="Easy">Easy</option>
-                          <option value="Medium">Medium</option>
-                          <option value="Hard">Hard</option>
-                        </select>
-                      </div>
-                    </div>
 
-                    <div>
-                      <label class="block text-sm font-medium text-gray-700"
-                        >Tags</label
-                      >
-                      <input
-                        type="text"
-                        [ngModel]="tagInput"
-                        (ngModelChange)="updateTags($event)"
-                        [ngModelOptions]="{ standalone: true }"
-                        placeholder="Add tags (comma-separated)"
-                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                      />
-                      <div class="mt-2 flex flex-wrap gap-2">
-                        <span
-                          *ngFor="let tag of recipeForm.get('tags')?.value"
-                          class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700"
+                      <div>
+                        <label
+                          class="block text-sm font-medium text-gray-700 mb-1"
+                          >Tags</label
                         >
-                          {{ tag }}
+                        <div class="relative">
+                          <input
+                            type="text"
+                            [ngModel]="tagInput"
+                            (ngModelChange)="updateTags($event)"
+                            [ngModelOptions]="{ standalone: true }"
+                            placeholder="Add tags (comma-separated)"
+                            class="w-full px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                        </div>
+                        <div class="mt-2 flex flex-wrap gap-2">
+                          <span
+                            *ngFor="let tag of recipeForm.get('tags')?.value"
+                            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm bg-indigo-100 text-indigo-800"
+                          >
+                            {{ tag }}
+                            <button
+                              type="button"
+                              (click)="removeTag(tag)"
+                              class="ml-1.5 text-indigo-600 hover:text-indigo-900"
+                            >
+                              <i class="fas fa-times-circle"></i>
+                            </button>
+                          </span>
+                        </div>
+                      </div>
+
+                      <div formArrayName="ingredients" class="space-y-2">
+                        <div class="flex items-center justify-between">
+                          <label class="block text-sm font-medium text-gray-700"
+                            >Ingredients</label
+                          >
                           <button
                             type="button"
-                            (click)="removeTag(tag)"
-                            class="ml-1 text-indigo-500 hover:text-indigo-600"
+                            (click)="addIngredient()"
+                            class="text-sm text-indigo-600 hover:text-indigo-900"
+                          >
+                            <i class="fas fa-plus mr-1"></i> Add
+                          </button>
+                        </div>
+                        <div
+                          *ngFor="
+                            let ingredient of ingredients.controls;
+                            let i = index
+                          "
+                          [formGroupName]="i"
+                          class="flex gap-2 items-start"
+                        >
+                          <input
+                            formControlName="name"
+                            placeholder="Name"
+                            class="flex-1 px-3 py-1.5 text-sm rounded border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                          <input
+                            type="number"
+                            formControlName="amount"
+                            placeholder="Amt"
+                            class="w-20 px-2 py-1.5 text-sm rounded border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                          <input
+                            formControlName="unit"
+                            placeholder="Unit"
+                            class="w-20 px-2 py-1.5 text-sm rounded border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            (click)="removeIngredient(i)"
+                            class="text-red-500 hover:text-red-700 py-1.5"
                           >
                             <i class="fas fa-times"></i>
                           </button>
-                        </span>
+                        </div>
+                      </div>
+
+                      <div formArrayName="instructions" class="space-y-2">
+                        <div class="flex items-center justify-between">
+                          <label class="block text-sm font-medium text-gray-700"
+                            >Instructions</label
+                          >
+                          <button
+                            type="button"
+                            (click)="addInstruction()"
+                            class="text-sm text-indigo-600 hover:text-indigo-900"
+                          >
+                            <i class="fas fa-plus mr-1"></i> Add
+                          </button>
+                        </div>
+                        <div
+                          *ngFor="
+                            let instruction of instructions.controls;
+                            let i = index
+                          "
+                          class="flex gap-2 items-start"
+                        >
+                          <span class="text-sm font-medium text-gray-500 pt-1.5"
+                            >{{ i + 1 }}.</span
+                          >
+                          <input
+                            [formControlName]="i"
+                            placeholder="Enter instruction step"
+                            class="flex-1 px-3 py-1.5 text-sm rounded border border-gray-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                          />
+                          <button
+                            type="button"
+                            (click)="removeInstruction(i)"
+                            class="text-red-500 hover:text-red-700 py-1.5"
+                          >
+                            <i class="fas fa-times"></i>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <!-- Right Column -->
-                  <div class="space-y-4">
-                    <div formArrayName="ingredients" class="space-y-2">
-                      <label class="block text-sm font-medium text-gray-700"
-                        >Ingredients</label
-                      >
-                      <div
-                        *ngFor="
-                          let ingredient of ingredients.controls;
-                          let i = index
-                        "
-                        [formGroupName]="i"
-                        class="flex gap-2"
-                      >
-                        <input
-                          formControlName="name"
-                          placeholder="Ingredient name"
-                          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                        <input
-                          type="number"
-                          formControlName="amount"
-                          placeholder="Amount"
-                          class="w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                        <input
-                          formControlName="unit"
-                          placeholder="Unit"
-                          class="w-24 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                        <button
-                          type="button"
-                          (click)="removeIngredient(i)"
-                          class="text-red-500 hover:text-red-700"
-                        >
-                          <i class="fas fa-times"></i>
-                        </button>
-                      </div>
+                  <!-- Form Actions -->
+                  <div
+                    class="sticky bottom-0 bg-white border-t border-gray-200 px-4 py-3 sm:px-6 -mx-4 sm:-mx-6 mt-6"
+                  >
+                    <div class="flex justify-end gap-3">
                       <button
                         type="button"
-                        (click)="addIngredient()"
-                        class="mt-2 inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200"
+                        (click)="closeModal()"
+                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
                       >
-                        Add Ingredient
+                        Cancel
                       </button>
-                    </div>
-
-                    <div formArrayName="instructions" class="space-y-2">
-                      <label class="block text-sm font-medium text-gray-700"
-                        >Instructions</label
-                      >
-                      <div
-                        *ngFor="
-                          let instruction of instructions.controls;
-                          let i = index
-                        "
-                        class="flex gap-2"
-                      >
-                        <input
-                          [formControlName]="i"
-                          placeholder="Enter instruction step"
-                          class="flex-1 rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
-                        />
-                        <button
-                          type="button"
-                          (click)="removeInstruction(i)"
-                          class="text-red-500 hover:text-red-700"
-                        >
-                          <i class="fas fa-times"></i>
-                        </button>
-                      </div>
                       <button
-                        type="button"
-                        (click)="addInstruction()"
-                        class="mt-2 inline-flex items-center px-3 py-1 border border-transparent text-sm leading-4 font-medium rounded-md text-indigo-700 bg-indigo-100 hover:bg-indigo-200"
+                        type="submit"
+                        [disabled]="!recipeForm.valid"
+                        class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        Add Instruction
+                        Create Recipe
                       </button>
                     </div>
                   </div>
-                </div>
+                </form>
 
-                <div class="flex justify-end gap-2 pt-4">
-                  <button
-                    type="button"
-                    (click)="closeModal()"
-                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    [disabled]="!recipeForm.valid"
-                    class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50"
-                  >
-                    Create Recipe
-                    <span *ngIf="!recipeForm.valid" class="text-xs ml-1">
-                      (Please fill all required fields)
-                    </span>
-                  </button>
-                </div>
-              </form>
-            </div>
-
-            <!-- Add validation messages -->
-            <div *ngIf="!recipeForm.valid" class="mt-4 text-sm text-red-600">
-              <div *ngIf="ingredients.length === 0">
-                Please add at least one ingredient
-              </div>
-              <div *ngIf="instructions.length === 0">
-                Please add at least one instruction
-              </div>
-              <div *ngIf="recipeForm.get('tags')?.value?.length === 0">
-                Please add at least one tag
-              </div>
-              <div *ngIf="recipeForm.get('title')?.errors?.['required']">
-                Title is required
-              </div>
-              <div *ngIf="recipeForm.get('description')?.errors?.['required']">
-                Description is required
-              </div>
-              <div *ngIf="recipeForm.get('imageUrl')?.errors?.['required']">
-                Image URL is required
-              </div>
-              <div *ngIf="recipeForm.get('category')?.errors?.['required']">
-                Category is required
-              </div>
-            </div>
-
-            <!-- Existing Recipe Selection -->
-            <div *ngIf="!isCreatingRecipe">
-              <div class="mb-4">
-                <input
-                  type="text"
-                  [(ngModel)]="searchTerm"
-                  (input)="filterRecipes()"
-                  placeholder="Search recipes..."
-                  class="w-full px-4 py-2 border rounded-lg"
-                />
-              </div>
-
-              <div class="grid grid-cols-1 gap-4">
+                <!-- Validation Messages -->
                 <div
-                  *ngFor="let recipe of filteredRecipes"
-                  (click)="selectRecipe(recipe)"
-                  class="p-4 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                  *ngIf="isCreatingRecipe && !recipeForm.valid"
+                  class="mt-4 p-4 bg-red-50 rounded-lg"
                 >
-                  <h3 class="font-medium">{{ recipe.title }}</h3>
-                  <p class="text-sm text-gray-600">
-                    {{ recipe.prepTime + recipe.cookTime }} min
-                  </p>
+                  <h4 class="text-sm font-medium text-red-800 mb-2">
+                    Please fix the following:
+                  </h4>
+                  <ul
+                    class="list-disc list-inside text-sm text-red-700 space-y-1"
+                  >
+                    <li *ngIf="ingredients.length === 0">
+                      Add at least one ingredient
+                    </li>
+                    <li *ngIf="instructions.length === 0">
+                      Add at least one instruction
+                    </li>
+                    <li *ngIf="recipeForm.get('tags')?.value?.length === 0">
+                      Add at least one tag
+                    </li>
+                    <li *ngIf="recipeForm.get('title')?.errors?.['required']">
+                      Title is required
+                    </li>
+                    <li
+                      *ngIf="recipeForm.get('description')?.errors?.['required']"
+                    >
+                      Description is required
+                    </li>
+                    <li
+                      *ngIf="recipeForm.get('imageUrl')?.errors?.['required']"
+                    >
+                      Image URL is required
+                    </li>
+                    <li
+                      *ngIf="recipeForm.get('category')?.errors?.['required']"
+                    >
+                      Category is required
+                    </li>
+                  </ul>
                 </div>
               </div>
             </div>

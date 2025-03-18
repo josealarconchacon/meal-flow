@@ -52,6 +52,24 @@ import { MealPlanService } from '../../services/meal-plan.service';
             <h2 class="text-2xl sm:text-3xl font-bold mb-2 text-shadow">
               {{ recipe.title }}
             </h2>
+            <!-- User Info -->
+            <div class="flex items-center space-x-2 mb-2">
+              <img
+                *ngIf="recipe.userAvatarUrl"
+                [src]="recipe.userAvatarUrl"
+                [alt]="recipe.username"
+                class="w-8 h-8 rounded-full object-cover border-2 border-white"
+              />
+              <div
+                *ngIf="!recipe.userAvatarUrl"
+                class="w-8 h-8 rounded-full bg-gray-200 border-2 border-white flex items-center justify-center"
+              >
+                <i class="fas fa-user text-gray-400"></i>
+              </div>
+              <span class="text-sm sm:text-base font-medium">{{
+                recipe.username
+              }}</span>
+            </div>
             <p
               class="text-sm sm:text-base text-gray-100 text-shadow-sm line-clamp-2"
             >

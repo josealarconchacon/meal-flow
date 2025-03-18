@@ -7,11 +7,17 @@ export interface Recipe {
   prepTime: number;
   cookTime: number;
   servings: number;
-  difficulty: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
   ingredients: Ingredient[];
   instructions: string[];
   tags: string[];
   isFavorite: boolean;
+  userId: string;
+  username: string;
+  userAvatarUrl?: string;
+  createdAt: string;
+  updatedAt: string;
+  mealType?: 'breakfast' | 'lunch' | 'dinner' | 'snacks';
 }
 
 export interface Ingredient {

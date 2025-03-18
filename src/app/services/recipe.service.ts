@@ -1,6 +1,8 @@
 import { Injectable } from '@angular/core';
 import { Recipe } from '../models/recipe.model';
 import { BehaviorSubject, Observable } from 'rxjs';
+import { UserService } from './user.service';
+import { take } from 'rxjs/operators';
 
 @Injectable({
   providedIn: 'root',
@@ -36,6 +38,12 @@ export class RecipeService {
       ],
       tags: ['Italian', 'Pasta', 'Quick'],
       isFavorite: false,
+      userId: 'system',
+      username: 'MealFlow',
+      userAvatarUrl:
+        'https://ui-avatars.com/api/?name=Meal+Flow&background=random',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
     {
       id: '2',
@@ -66,6 +74,12 @@ export class RecipeService {
       ],
       tags: ['Vegetarian', 'Healthy', 'Gluten-Free'],
       isFavorite: false,
+      userId: 'system',
+      username: 'MealFlow',
+      userAvatarUrl:
+        'https://ui-avatars.com/api/?name=Meal+Flow&background=random',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
     {
       id: '3',
@@ -95,10 +109,18 @@ export class RecipeService {
       ],
       tags: ['Vegetarian', 'Healthy', 'Quick', 'Make-Ahead'],
       isFavorite: false,
+      userId: 'system',
+      username: 'MealFlow',
+      userAvatarUrl:
+        'https://ui-avatars.com/api/?name=Meal+Flow&background=random',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     },
   ];
 
   private recipesSubject = new BehaviorSubject<Recipe[]>(this.recipes);
+
+  constructor(private userService: UserService) {}
 
   getRecipes(): Recipe[] {
     return this.recipes;
@@ -144,8 +166,24 @@ export class RecipeService {
     );
   }
 
-  addRecipe(recipe: Recipe): void {
-    this.recipes.push(recipe);
-    this.recipesSubject.next([...this.recipes]);
+  async addRecipe(recipe: Recipe): Promise<void> {
+    const currentUser = await this.userService
+      .getCurrentUser()
+      .pipe(take(1))
+      .toPromise();
+
+    if (currentUser) {
+      const recipeWithUser: Recipe = {
+        ...recipe,
+        userId: currentUser.id,
+        username: currentUser.username,
+        userAvatarUrl: currentUser.avatarUrl,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      this.recipes.unshift(recipeWithUser);
+      this.recipesSubject.next([...this.recipes]);
+    }
   }
 }

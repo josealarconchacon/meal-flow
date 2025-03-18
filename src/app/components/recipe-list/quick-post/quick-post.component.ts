@@ -8,6 +8,7 @@ import {
   Post,
   ShareOption,
 } from '../../../services/quick-post.service';
+import { UserService, UserProfile } from '../../../services/user.service';
 import { Observable, map } from 'rxjs';
 import { CommentPanelComponent } from './comment-panel.component';
 
@@ -36,30 +37,6 @@ interface MediaItem {
   template: `
     <!-- Main Container with subtle gradient background -->
     <div class="min-h-screen bg-gradient-to-br from-gray-50 to-white">
-      <!-- Navigation Header - Fixed at top with blur effect -->
-      <div
-        class="sticky top-0 z-50 backdrop-blur-md bg-white/80 border-b border-gray-200 mb-4"
-      >
-        <div
-          class="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between"
-        >
-          <h1
-            class="text-xl font-bold bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent"
-          >
-            Community Feed
-          </h1>
-          <div class="flex items-center gap-4">
-            <a
-              routerLink="/recipes"
-              class="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-200 rounded-full hover:bg-gray-50 hover:border-gray-300 active:bg-gray-100 transition-all shadow-sm"
-            >
-              <i class="fas fa-arrow-left mr-2 text-indigo-600"></i>
-              Back to Recipes
-            </a>
-          </div>
-        </div>
-      </div>
-
       <!-- Main Content Area -->
       <div class="max-w-xl mx-auto px-4 pb-8">
         <!-- Create Post Card -->
@@ -72,9 +49,13 @@ interface MediaItem {
                 class="h-12 w-12 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5"
               >
                 <div
-                  class="h-full w-full rounded-full bg-white flex items-center justify-center"
+                  class="h-full w-full rounded-full bg-white overflow-hidden"
                 >
-                  <i class="fas fa-user text-indigo-600"></i>
+                  <img
+                    [src]="avatarUrl$ | async"
+                    [alt]="(currentUser$ | async)?.username"
+                    class="h-full w-full object-cover"
+                  />
                 </div>
               </div>
               <button
@@ -149,13 +130,19 @@ interface MediaItem {
                       class="h-12 w-12 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5"
                     >
                       <div
-                        class="h-full w-full rounded-full bg-white flex items-center justify-center"
+                        class="h-full w-full rounded-full bg-white overflow-hidden"
                       >
-                        <i class="fas fa-user text-indigo-600"></i>
+                        <img
+                          [src]="avatarUrl$ | async"
+                          [alt]="(currentUser$ | async)?.username"
+                          class="h-full w-full object-cover"
+                        />
                       </div>
                     </div>
                     <div>
-                      <p class="font-medium text-gray-900">Recipe Enthusiast</p>
+                      <p class="font-medium text-gray-900">
+                        {{ (currentUser$ | async)?.username }}
+                      </p>
                       <p class="text-xs text-gray-500 mt-0.5">
                         {{ formatDate(post.timestamp) }}
                       </p>
@@ -755,6 +742,9 @@ interface MediaItem {
       :host {
         display: block;
       }
+      .min-h-screen {
+        margin-top: 100px;
+      }
 
       @keyframes like-pop {
         0% {
@@ -808,12 +798,18 @@ export class QuickPostComponent implements OnInit {
     'Easy',
   ];
 
+  currentUser$: Observable<UserProfile>;
+  avatarUrl$: Observable<string>;
+
   constructor(
     private quickPostService: QuickPostService,
+    private userService: UserService,
     private sanitizer: DomSanitizer
   ) {
     this.posts$ = this.quickPostService.getPosts();
     this.shareOptions = this.quickPostService.getShareOptions();
+    this.currentUser$ = this.userService.getCurrentUser();
+    this.avatarUrl$ = this.userService.getAvatarUrl();
   }
 
   ngOnInit(): void {}

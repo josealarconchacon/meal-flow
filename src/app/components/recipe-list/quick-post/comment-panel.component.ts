@@ -13,8 +13,9 @@ import {
   Comment,
   QuickPostService,
 } from '../../../services/quick-post.service';
+import { UserService, UserProfile } from '../../../services/user.service';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { Subject, takeUntil } from 'rxjs';
+import { Subject, takeUntil, Observable } from 'rxjs';
 
 @Component({
   selector: 'app-comment-panel',
@@ -63,10 +64,12 @@ import { Subject, takeUntil } from 'rxjs';
             <div
               class="h-10 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white"
             >
-              <div
-                class="h-full w-full rounded-full bg-white flex items-center justify-center"
-              >
-                <i class="fas fa-user text-indigo-600"></i>
+              <div class="h-full w-full rounded-full bg-white overflow-hidden">
+                <img
+                  [src]="avatarUrl$ | async"
+                  [alt]="post.username"
+                  class="h-full w-full object-cover"
+                />
               </div>
             </div>
             <div>
@@ -95,9 +98,13 @@ import { Subject, takeUntil } from 'rxjs';
                     class="h-8 w-8 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
                   >
                     <div
-                      class="h-full w-full rounded-full bg-white flex items-center justify-center"
+                      class="h-full w-full rounded-full bg-white overflow-hidden"
                     >
-                      <i class="fas fa-user text-indigo-600 text-xs"></i>
+                      <img
+                        [src]="avatarUrl$ | async"
+                        [alt]="comment.username"
+                        class="h-full w-full object-cover"
+                      />
                     </div>
                   </div>
                   <div class="flex-1 min-w-0">
@@ -157,11 +164,13 @@ import { Subject, takeUntil } from 'rxjs';
                           class="w-6 h-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
                         >
                           <div
-                            class="h-full w-full rounded-full bg-white flex items-center justify-center"
+                            class="h-full w-full rounded-full bg-white overflow-hidden"
                           >
-                            <i
-                              class="fas fa-user text-indigo-600 text-[10px]"
-                            ></i>
+                            <img
+                              [src]="avatarUrl$ | async"
+                              [alt]="(currentUser$ | async)?.username"
+                              class="h-full w-full object-cover"
+                            />
                           </div>
                         </div>
                         <div class="flex-1 relative">
@@ -211,11 +220,13 @@ import { Subject, takeUntil } from 'rxjs';
                           class="w-6 h-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
                         >
                           <div
-                            class="h-full w-full rounded-full bg-white flex items-center justify-center"
+                            class="h-full w-full rounded-full bg-white overflow-hidden"
                           >
-                            <i
-                              class="fas fa-user text-indigo-600 text-[10px]"
-                            ></i>
+                            <img
+                              [src]="avatarUrl$ | async"
+                              [alt]="reply.username"
+                              class="h-full w-full object-cover"
+                            />
                           </div>
                         </div>
                         <div class="flex-1 min-w-0">
@@ -287,9 +298,13 @@ import { Subject, takeUntil } from 'rxjs';
                 class="h-8 w-8 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
               >
                 <div
-                  class="h-full w-full rounded-full bg-white flex items-center justify-center"
+                  class="h-full w-full rounded-full bg-white overflow-hidden"
                 >
-                  <i class="fas fa-user text-indigo-600 text-xs"></i>
+                  <img
+                    [src]="avatarUrl$ | async"
+                    [alt]="(currentUser$ | async)?.username"
+                    class="h-full w-full object-cover"
+                  />
                 </div>
               </div>
               <div class="flex-1 relative">
@@ -388,24 +403,24 @@ import { Subject, takeUntil } from 'rxjs';
 })
 export class CommentPanelComponent implements OnInit, OnDestroy {
   @Input() isOpen = false;
-  @Input() set post(value: Post) {
-    this._post = value;
-    this.subscribeToPostUpdates();
-  }
-  get post(): Post {
-    return this._post;
-  }
+  @Input() post!: Post;
   @Output() close = new EventEmitter<void>();
 
-  private _post!: Post;
+  currentUser$!: Observable<UserProfile>;
+  avatarUrl$!: Observable<string>;
   private destroy$ = new Subject<void>();
   newComment = '';
   replyText = '';
   replyingToId: string | null = null;
 
-  constructor(private quickPostService: QuickPostService) {}
+  constructor(
+    private quickPostService: QuickPostService,
+    private userService: UserService
+  ) {}
 
   ngOnInit(): void {
+    this.currentUser$ = this.userService.getCurrentUser();
+    this.avatarUrl$ = this.userService.getAvatarUrl();
     this.subscribeToPostUpdates();
   }
 
@@ -415,15 +430,15 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
   }
 
   private subscribeToPostUpdates(): void {
-    if (!this._post) return;
+    if (!this.post) return;
 
     this.quickPostService
       .getPosts()
       .pipe(takeUntil(this.destroy$))
       .subscribe((posts) => {
-        const updatedPost = posts.find((p) => p.id === this._post.id);
+        const updatedPost = posts.find((p) => p.id === this.post.id);
         if (updatedPost) {
-          this._post = updatedPost;
+          this.post = updatedPost;
         }
       });
   }

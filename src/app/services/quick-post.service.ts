@@ -1,5 +1,6 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable } from 'rxjs';
+import { BehaviorSubject, Observable, combineLatest, map } from 'rxjs';
+import { UserService } from './user.service';
 
 export interface Reply {
   id: string;
@@ -60,12 +61,44 @@ export class QuickPostService {
 
   private posts = new BehaviorSubject<Post[]>([]);
 
-  constructor() {
+  constructor(private userService: UserService) {
     // Initialize with some sample data if needed
   }
 
   getPosts(): Observable<Post[]> {
     return this.posts.asObservable();
+  }
+
+  getUserPosts(): Observable<Post[]> {
+    return combineLatest([
+      this.getPosts(),
+      this.userService.getCurrentUser(),
+    ]).pipe(
+      map(([posts, user]) => posts.filter((post) => post.userId === user.id))
+    );
+  }
+
+  getUserPostsByUserId(userId: string): Observable<Post[]> {
+    return this.getPosts().pipe(
+      map((posts) => posts.filter((post) => post.userId === userId))
+    );
+  }
+
+  getLikedPosts(): Observable<Post[]> {
+    return combineLatest([
+      this.getPosts(),
+      this.userService.getCurrentUser(),
+    ]).pipe(
+      map(([posts, user]) =>
+        posts.filter((post) => post.likedBy?.includes(user.id))
+      )
+    );
+  }
+
+  getLikedPostsByUserId(userId: string): Observable<Post[]> {
+    return this.getPosts().pipe(
+      map((posts) => posts.filter((post) => post.likedBy?.includes(userId)))
+    );
   }
 
   getCurrentUserId(): string {

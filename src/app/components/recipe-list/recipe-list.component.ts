@@ -1,7 +1,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { RouterModule } from '@angular/router';
+import { RouterModule, Router } from '@angular/router';
 import { Recipe } from '../../models/recipe.model';
 import { RecipeService } from '../../services/recipe.service';
 import { RecipeDetailModalComponent } from '../recipe-detail-modal/recipe-detail-modal.component';
@@ -106,7 +106,29 @@ import { RecipeDetailModalComponent } from '../recipe-detail-modal/recipe-detail
             </button>
           </div>
           <div class="p-4">
-            <h3 class="font-semibold text-lg mb-2">{{ recipe.title }}</h3>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-semibold text-lg">{{ recipe.title }}</h3>
+              <div
+                class="flex items-center space-x-2 cursor-pointer hover:opacity-75 transition-opacity"
+                (click)="navigateToProfile($event, recipe.userId)"
+              >
+                <img
+                  *ngIf="recipe.userAvatarUrl"
+                  [src]="recipe.userAvatarUrl"
+                  [alt]="recipe.username"
+                  class="w-6 h-6 rounded-full object-cover hover:ring-2 hover:ring-indigo-500"
+                />
+                <div
+                  *ngIf="!recipe.userAvatarUrl"
+                  class="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center hover:bg-gray-300"
+                >
+                  <i class="fas fa-user text-gray-400 text-sm"></i>
+                </div>
+                <span class="text-sm text-gray-600 hover:text-indigo-600">{{
+                  recipe.username
+                }}</span>
+              </div>
+            </div>
             <p class="text-gray-600 text-sm mb-3 line-clamp-2">
               {{ recipe.description }}
             </p>
@@ -180,7 +202,7 @@ export class RecipeListComponent implements OnInit {
   selectedCategories: string[] = ['All'];
   selectedTags: string[] = [];
 
-  constructor(private recipeService: RecipeService) {}
+  constructor(private recipeService: RecipeService, private router: Router) {}
 
   ngOnInit(): void {
     this.loadRecipes();
@@ -288,5 +310,10 @@ export class RecipeListComponent implements OnInit {
 
   closeRecipeDetail(): void {
     this.selectedRecipe = null;
+  }
+
+  navigateToProfile(event: Event, userId: string): void {
+    event.stopPropagation(); // Prevent the recipe card click from triggering
+    this.router.navigate(['/profile'], { queryParams: { id: userId } });
   }
 }

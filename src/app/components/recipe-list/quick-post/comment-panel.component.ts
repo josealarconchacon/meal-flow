@@ -14,325 +14,32 @@ import {
   QuickPostService,
 } from '../../../services/quick-post.service';
 import { UserService, UserProfile } from '../../../services/user.service';
+import { FirebaseService } from '../../../services/firebase.service';
 import { trigger, transition, style, animate } from '@angular/animations';
-import { Subject, takeUntil, Observable } from 'rxjs';
+import { Subject, takeUntil, Observable, firstValueFrom } from 'rxjs';
+
+interface ExtendedUserProfile extends UserProfile {
+  uid: string;
+}
+
+interface ExtendedPost extends Post {
+  id: string;
+  comments: ExtendedComment[];
+  username: string;
+}
+
+interface ExtendedComment extends Comment {
+  id: string;
+  replies?: ExtendedComment[];
+  username: string;
+  likedBy: string[];
+}
 
 @Component({
   selector: 'app-comment-panel',
   standalone: true,
   imports: [CommonModule, FormsModule],
-  template: `
-    <div
-      *ngIf="isOpen"
-      class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex justify-end"
-      (click)="closePanel()"
-      @overlayAnimation
-    >
-      <!-- Comment Panel -->
-      <div
-        class="w-full max-w-md bg-white h-full transform transition-transform duration-300 shadow-2xl"
-        [class.translate-x-full]="!isOpen"
-        [class.translate-x-0]="isOpen"
-        (click)="$event.stopPropagation()"
-        @panelAnimation
-      >
-        <!-- Header -->
-        <div
-          class="sticky top-0 z-10 bg-white/80 backdrop-blur-md border-b border-gray-100"
-        >
-          <div class="flex justify-between items-center p-4">
-            <div class="flex items-center gap-3">
-              <h3 class="text-lg font-semibold text-gray-900">Comments</h3>
-              <span
-                class="px-2 py-1 text-xs font-medium text-gray-500 bg-gray-100 rounded-full"
-              >
-                {{ getTotalCommentsCount() }}
-              </span>
-            </div>
-            <button
-              class="p-2 text-gray-400 hover:text-gray-600 rounded-xl transition-colors hover:bg-gray-50"
-              (click)="closePanel()"
-            >
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-        </div>
-
-        <!-- Original Post Preview -->
-        <div class="p-4 border-b bg-gray-50/80 backdrop-blur-sm">
-          <div class="flex items-center gap-3 mb-3">
-            <div
-              class="h-10 w-10 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white"
-            >
-              <div class="h-full w-full rounded-full bg-white overflow-hidden">
-                <img
-                  [src]="avatarUrl$ | async"
-                  [alt]="post.username"
-                  class="h-full w-full object-cover"
-                />
-              </div>
-            </div>
-            <div>
-              <p class="font-medium text-gray-900">{{ post.username }}</p>
-              <p class="text-xs text-gray-500">
-                {{ formatDate(post.timestamp) }}
-              </p>
-            </div>
-          </div>
-          <p class="text-gray-600 text-sm line-clamp-2 leading-relaxed">
-            {{ post.text }}
-          </p>
-        </div>
-
-        <!-- Comments List -->
-        <div class="flex-1 overflow-y-auto h-[calc(100%-13rem)] bg-gray-50/50">
-          <div class="divide-y divide-gray-100">
-            <ng-container *ngFor="let comment of post.comments">
-              <!-- Main Comment -->
-              <div
-                class="p-4 hover:bg-white transition-colors duration-200"
-                @commentAnimation
-              >
-                <div class="flex items-start gap-3">
-                  <div
-                    class="h-8 w-8 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
-                  >
-                    <div
-                      class="h-full w-full rounded-full bg-white overflow-hidden"
-                    >
-                      <img
-                        [src]="avatarUrl$ | async"
-                        [alt]="comment.username"
-                        class="h-full w-full object-cover"
-                      />
-                    </div>
-                  </div>
-                  <div class="flex-1 min-w-0">
-                    <div class="flex items-center justify-between gap-2 mb-1">
-                      <p class="font-medium text-gray-900 text-sm">
-                        {{ comment.username }}
-                      </p>
-                      <p class="text-xs text-gray-500 whitespace-nowrap">
-                        {{ formatDate(comment.timestamp) }}
-                      </p>
-                    </div>
-                    <p
-                      class="text-gray-600 text-sm break-words leading-relaxed"
-                    >
-                      {{ comment.text }}
-                    </p>
-                    <div class="flex items-center gap-4 mt-2.5">
-                      <button
-                        (click)="likeComment(comment.id)"
-                        class="text-xs flex items-center gap-1.5 hover:text-gray-900 transition-colors group"
-                        [class.text-red-500]="hasUserLikedComment(comment.id)"
-                        [class.text-gray-500]="!hasUserLikedComment(comment.id)"
-                      >
-                        <i
-                          class="fas fa-heart group-hover:scale-125 transition-transform"
-                        ></i>
-                        <span>{{ comment.likes || 0 }}</span>
-                      </button>
-                      <button
-                        (click)="toggleReplyInput(comment.id)"
-                        class="text-xs text-gray-500 hover:text-indigo-600 transition-colors group"
-                      >
-                        <i
-                          class="fas fa-reply group-hover:scale-125 transition-transform mr-1.5"
-                        ></i>
-                        <span>Reply</span>
-                      </button>
-                      <button
-                        *ngIf="canDeleteComment(comment)"
-                        (click)="deleteComment(comment.id)"
-                        class="text-xs text-gray-400 hover:text-red-500 transition-colors group"
-                      >
-                        <i
-                          class="fas fa-trash-alt group-hover:scale-125 transition-transform"
-                        ></i>
-                      </button>
-                    </div>
-
-                    <!-- Reply Input -->
-                    <div
-                      *ngIf="replyingToId === comment.id"
-                      class="mt-3"
-                      @fadeAnimation
-                    >
-                      <div class="flex items-start gap-2">
-                        <div
-                          class="w-6 h-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
-                        >
-                          <div
-                            class="h-full w-full rounded-full bg-white overflow-hidden"
-                          >
-                            <img
-                              [src]="avatarUrl$ | async"
-                              [alt]="(currentUser$ | async)?.username"
-                              class="h-full w-full object-cover"
-                            />
-                          </div>
-                        </div>
-                        <div class="flex-1 relative">
-                          <textarea
-                            [(ngModel)]="replyText"
-                            rows="1"
-                            class="w-full px-3 py-2 text-sm text-gray-900 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all resize-none"
-                            placeholder="Write a reply..."
-                            (keydown.enter)="
-                              $event.preventDefault(); submitReply(comment.id)
-                            "
-                            [class.pr-9]="replyText.trim().length > 0"
-                          ></textarea>
-                          <button
-                            *ngIf="replyText.trim().length > 0"
-                            (click)="submitReply(comment.id)"
-                            class="absolute right-2 top-1.5 p-1.5 text-indigo-600 hover:text-indigo-800 transition-colors group"
-                            @fadeAnimation
-                          >
-                            <i
-                              class="fas fa-paper-plane group-hover:scale-125 transition-transform"
-                            ></i>
-                          </button>
-                        </div>
-                      </div>
-                      <div class="flex justify-end gap-2 mt-2">
-                        <button
-                          (click)="cancelReply()"
-                          class="px-3 py-1 text-xs text-gray-600 hover:text-gray-900 transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-
-                    <!-- Nested Replies -->
-                    <div
-                      *ngIf="comment.replies && comment.replies.length > 0"
-                      class="mt-3 space-y-3 pl-4 border-l-2 border-gray-100"
-                    >
-                      <div
-                        *ngFor="let reply of comment.replies"
-                        class="flex items-start gap-2"
-                        @commentAnimation
-                      >
-                        <div
-                          class="w-6 h-6 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
-                        >
-                          <div
-                            class="h-full w-full rounded-full bg-white overflow-hidden"
-                          >
-                            <img
-                              [src]="avatarUrl$ | async"
-                              [alt]="reply.username"
-                              class="h-full w-full object-cover"
-                            />
-                          </div>
-                        </div>
-                        <div class="flex-1 min-w-0">
-                          <div class="flex items-center justify-between gap-2">
-                            <p class="font-medium text-gray-900 text-xs">
-                              {{ reply.username }}
-                            </p>
-                            <p class="text-xs text-gray-500">
-                              {{ formatDate(reply.timestamp) }}
-                            </p>
-                          </div>
-                          <p
-                            class="text-gray-600 text-xs mt-0.5 break-words leading-relaxed"
-                          >
-                            {{ reply.text }}
-                          </p>
-                          <div class="flex items-center gap-3 mt-1.5">
-                            <button
-                              (click)="likeReply(comment.id, reply.id)"
-                              class="text-xs flex items-center gap-1 hover:text-gray-900 transition-colors group"
-                              [class.text-red-500]="
-                                hasUserLikedReply(comment.id, reply.id)
-                              "
-                              [class.text-gray-500]="
-                                !hasUserLikedReply(comment.id, reply.id)
-                              "
-                            >
-                              <i
-                                class="fas fa-heart group-hover:scale-125 transition-transform"
-                              ></i>
-                              <span>{{ reply.likes || 0 }}</span>
-                            </button>
-                            <button
-                              *ngIf="canDeleteReply(reply)"
-                              (click)="deleteReply(comment.id, reply.id)"
-                              class="text-xs text-gray-400 hover:text-red-500 transition-colors group"
-                            >
-                              <i
-                                class="fas fa-trash-alt group-hover:scale-125 transition-transform"
-                              ></i>
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </ng-container>
-
-            <!-- Empty State -->
-            <div *ngIf="post.comments.length === 0" class="p-8 text-center">
-              <div class="mx-auto h-16 w-16 text-gray-200 mb-4">
-                <i class="fas fa-comments text-4xl"></i>
-              </div>
-              <h4 class="text-gray-900 font-medium mb-1">No comments yet</h4>
-              <p class="text-gray-500 text-sm">
-                Be the first to share your thoughts!
-              </p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Comment Input -->
-        <div class="sticky bottom-0 border-t bg-white shadow-lg">
-          <div class="p-4">
-            <div class="flex items-start gap-3">
-              <div
-                class="h-8 w-8 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5 ring-2 ring-white flex-shrink-0"
-              >
-                <div
-                  class="h-full w-full rounded-full bg-white overflow-hidden"
-                >
-                  <img
-                    [src]="avatarUrl$ | async"
-                    [alt]="(currentUser$ | async)?.username"
-                    class="h-full w-full object-cover"
-                  />
-                </div>
-              </div>
-              <div class="flex-1 relative">
-                <textarea
-                  [(ngModel)]="newComment"
-                  rows="1"
-                  class="w-full px-4 py-2.5 text-sm text-gray-900 placeholder-gray-400 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all resize-none"
-                  placeholder="Write a comment..."
-                  (keydown.enter)="$event.preventDefault(); submitComment()"
-                  [class.pr-10]="newComment.trim().length > 0"
-                ></textarea>
-                <button
-                  *ngIf="newComment.trim().length > 0"
-                  (click)="submitComment()"
-                  class="absolute right-2 top-2 p-1.5 text-indigo-600 hover:text-indigo-800 transition-colors group"
-                  @fadeAnimation
-                >
-                  <i
-                    class="fas fa-paper-plane group-hover:scale-125 transition-transform"
-                  ></i>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  `,
+  templateUrl: './comment-panel.component.html',
   styles: [
     `
       :host {
@@ -370,9 +77,9 @@ import { Subject, takeUntil, Observable } from 'rxjs';
     trigger('overlayAnimation', [
       transition(':enter', [
         style({ opacity: 0 }),
-        animate('200ms ease-out', style({ opacity: 1 })),
+        animate('150ms ease-out', style({ opacity: 1 })),
       ]),
-      transition(':leave', [animate('200ms ease-in', style({ opacity: 0 }))]),
+      transition(':leave', [animate('150ms ease-in', style({ opacity: 0 }))]),
     ]),
     trigger('panelAnimation', [
       transition(':enter', [
@@ -403,44 +110,37 @@ import { Subject, takeUntil, Observable } from 'rxjs';
 })
 export class CommentPanelComponent implements OnInit, OnDestroy {
   @Input() isOpen = false;
-  @Input() post!: Post;
+  @Input() post!: ExtendedPost;
   @Output() close = new EventEmitter<void>();
 
-  currentUser$!: Observable<UserProfile>;
+  currentUser$!: Observable<ExtendedUserProfile | null>;
+  currentUser: ExtendedUserProfile | null = null;
   avatarUrl$!: Observable<string>;
   private destroy$ = new Subject<void>();
   newComment = '';
   replyText = '';
   replyingToId: string | null = null;
+  isSubmitting = false;
 
   constructor(
     private quickPostService: QuickPostService,
-    private userService: UserService
+    private userService: UserService,
+    private firebaseService: FirebaseService
   ) {}
 
   ngOnInit(): void {
-    this.currentUser$ = this.userService.getCurrentUser();
+    this.currentUser$ =
+      this.userService.getCurrentUser() as Observable<ExtendedUserProfile | null>;
     this.avatarUrl$ = this.userService.getAvatarUrl();
-    this.subscribeToPostUpdates();
+
+    this.currentUser$.pipe(takeUntil(this.destroy$)).subscribe((user) => {
+      this.currentUser = user;
+    });
   }
 
   ngOnDestroy(): void {
     this.destroy$.next();
     this.destroy$.complete();
-  }
-
-  private subscribeToPostUpdates(): void {
-    if (!this.post) return;
-
-    this.quickPostService
-      .getPosts()
-      .pipe(takeUntil(this.destroy$))
-      .subscribe((posts) => {
-        const updatedPost = posts.find((p) => p.id === this.post.id);
-        if (updatedPost) {
-          this.post = updatedPost;
-        }
-      });
   }
 
   closePanel(): void {
@@ -450,36 +150,65 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
   formatDate(timestamp: string): string {
     const date = new Date(timestamp);
     const now = new Date();
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+    const diff = now.getTime() - date.getTime();
+    const seconds = Math.floor(diff / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    const days = Math.floor(hours / 24);
 
-    if (diffInSeconds < 60) {
-      return 'Just now';
-    } else if (diffInSeconds < 3600) {
-      const minutes = Math.floor(diffInSeconds / 60);
-      return `${minutes}m ago`;
-    } else if (diffInSeconds < 86400) {
-      const hours = Math.floor(diffInSeconds / 3600);
+    if (days > 7) {
+      return date.toLocaleDateString();
+    } else if (days > 0) {
+      return `${days}d ago`;
+    } else if (hours > 0) {
       return `${hours}h ago`;
+    } else if (minutes > 0) {
+      return `${minutes}m ago`;
     } else {
-      return date.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-      });
+      return 'Just now';
     }
   }
 
   getTotalCommentsCount(): number {
-    let total = this.post.comments.length;
-    this.post.comments.forEach((comment) => {
-      total += comment.replies?.length || 0;
-    });
-    return total;
+    return this.post.comments.reduce((total, comment) => {
+      return total + 1 + (comment.replies?.length || 0);
+    }, 0);
   }
 
-  submitComment(): void {
-    if (!this.newComment.trim()) return;
-    this.quickPostService.addComment(this.post.id, this.newComment.trim());
-    this.newComment = '';
+  private isValidId(id: string | undefined): id is string {
+    return typeof id === 'string' && id.length > 0;
+  }
+
+  private findComment(commentId: string): ExtendedComment | undefined {
+    return this.post.comments.find((comment) => comment.id === commentId);
+  }
+
+  private findReply(
+    commentId: string,
+    replyId: string
+  ): ExtendedComment | undefined {
+    const comment = this.findComment(commentId);
+    return comment?.replies?.find((reply) => reply.id === replyId);
+  }
+
+  hasUserLikedComment(commentId: string): boolean {
+    if (!this.currentUser) return false;
+    const comment = this.findComment(commentId);
+    return comment ? comment.likedBy.includes(this.currentUser.uid) : false;
+  }
+
+  hasUserLikedReply(commentId: string, replyId: string): boolean {
+    if (!this.currentUser) return false;
+    const reply = this.findReply(commentId, replyId);
+    return reply ? reply.likedBy.includes(this.currentUser.uid) : false;
+  }
+
+  canDeleteComment(comment: ExtendedComment): boolean {
+    return this.currentUser?.uid === comment.userId;
+  }
+
+  canDeleteReply(reply: ExtendedComment): boolean {
+    return this.currentUser?.uid === reply.userId;
   }
 
   toggleReplyInput(commentId: string): void {
@@ -496,49 +225,70 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
     this.replyText = '';
   }
 
-  submitReply(commentId: string): void {
-    if (!this.replyText.trim()) return;
-    this.quickPostService.addReply(
-      this.post.id,
-      commentId,
-      this.replyText.trim()
-    );
-    this.cancelReply();
+  async submitComment(): Promise<void> {
+    if (!this.newComment.trim() || this.isSubmitting) return;
+    this.isSubmitting = true;
+
+    try {
+      await this.quickPostService.addComment(
+        this.post.id,
+        this.newComment.trim()
+      );
+      this.newComment = '';
+    } catch (error) {
+      console.error('Error submitting comment:', error);
+    } finally {
+      this.isSubmitting = false;
+    }
   }
 
-  likeComment(commentId: string): void {
-    this.quickPostService.likeComment(this.post.id, commentId);
+  async submitReply(commentId: string): Promise<void> {
+    if (!this.replyText.trim() || this.isSubmitting) return;
+    this.isSubmitting = true;
+
+    try {
+      await this.quickPostService.addReply(
+        this.post.id,
+        commentId,
+        this.replyText.trim()
+      );
+      this.cancelReply();
+    } catch (error) {
+      console.error('Error submitting reply:', error);
+    } finally {
+      this.isSubmitting = false;
+    }
   }
 
-  likeReply(commentId: string, replyId: string): void {
-    this.quickPostService.likeReply(this.post.id, commentId, replyId);
+  async likeComment(commentId: string): Promise<void> {
+    try {
+      await this.quickPostService.likeComment(this.post.id, commentId);
+    } catch (error) {
+      console.error('Error liking comment:', error);
+    }
   }
 
-  deleteComment(commentId: string): void {
-    this.quickPostService.deleteComment(this.post.id, commentId);
+  async likeReply(commentId: string, replyId: string): Promise<void> {
+    try {
+      await this.quickPostService.likeReply(this.post.id, commentId, replyId);
+    } catch (error) {
+      console.error('Error liking reply:', error);
+    }
   }
 
-  deleteReply(commentId: string, replyId: string): void {
-    this.quickPostService.deleteReply(this.post.id, commentId, replyId);
+  async deleteComment(commentId: string): Promise<void> {
+    try {
+      await this.quickPostService.deleteComment(this.post.id, commentId);
+    } catch (error) {
+      console.error('Error deleting comment:', error);
+    }
   }
 
-  hasUserLikedComment(commentId: string): boolean {
-    return this.quickPostService.hasUserLikedComment(this.post.id, commentId);
-  }
-
-  hasUserLikedReply(commentId: string, replyId: string): boolean {
-    return this.quickPostService.hasUserLikedReply(
-      this.post.id,
-      commentId,
-      replyId
-    );
-  }
-
-  canDeleteComment(comment: Comment): boolean {
-    return comment.userId === this.quickPostService.getCurrentUserId();
-  }
-
-  canDeleteReply(reply: Comment): boolean {
-    return reply.userId === this.quickPostService.getCurrentUserId();
+  async deleteReply(commentId: string, replyId: string): Promise<void> {
+    try {
+      await this.quickPostService.deleteReply(this.post.id, commentId, replyId);
+    } catch (error) {
+      console.error('Error deleting reply:', error);
+    }
   }
 }

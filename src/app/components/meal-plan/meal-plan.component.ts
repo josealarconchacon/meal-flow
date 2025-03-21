@@ -129,8 +129,17 @@ export class MealPlanComponent implements OnInit, OnDestroy {
   }
 
   loadRecipes(): void {
-    this.allRecipes = this.recipeService.getRecipes();
-    this.filteredRecipes = [...this.allRecipes];
+    this.subscription.add(
+      this.recipeService.getRecipes().subscribe(
+        (recipes) => {
+          this.allRecipes = recipes;
+          this.filteredRecipes = [...recipes];
+        },
+        (error) => {
+          console.error('Error loading recipes:', error);
+        }
+      )
+    );
   }
 
   filterRecipes(searchTerm: string): void {
@@ -157,17 +166,25 @@ export class MealPlanComponent implements OnInit, OnDestroy {
 
     // Subscribe to meal plan updates
     this.subscription.add(
-      this.mealPlanService.getMealPlan().subscribe((mealPlan) => {
-        this.weekPlan.forEach((day) => {
-          const dayMeals = mealPlan.filter((meal) => meal.date === day.date);
-          dayMeals.forEach((meal) => {
-            const recipe = this.recipeService.getRecipeById(meal.recipeId);
-            if (recipe) {
-              day.meals[meal.mealType] = recipe;
+      this.mealPlanService.getMealPlan().subscribe(
+        (mealPlan) => {
+          // Reset meals for each day
+          this.weekPlan.forEach((day) => {
+            day.meals = {};
+          });
+
+          // Update meals for each day
+          mealPlan.forEach((meal) => {
+            const day = this.weekPlan.find((d) => d.date === meal.date);
+            if (day && meal.recipe) {
+              day.meals[meal.mealType] = meal.recipe;
             }
           });
-        });
-      })
+        },
+        (error) => {
+          console.error('Error loading meal plan:', error);
+        }
+      )
     );
   }
 
@@ -248,9 +265,15 @@ export class MealPlanComponent implements OnInit, OnDestroy {
     });
   }
 
-  handleCreateRecipe(recipe: Recipe): void {
-    this.recipeService.addRecipe(recipe);
-    this.loadRecipes();
-    this.selectRecipe(recipe);
+  async handleCreateRecipe(recipe: Recipe): Promise<void> {
+    try {
+      const recipeId = await this.recipeService.addRecipe(recipe);
+      if (recipeId) {
+        const recipeWithId = { ...recipe, id: recipeId };
+        await this.selectRecipe(recipeWithId);
+      }
+    } catch (error) {
+      console.error('Error creating recipe:', error);
+    }
   }
 }

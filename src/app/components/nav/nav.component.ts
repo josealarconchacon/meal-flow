@@ -2,6 +2,7 @@ import { Component } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
 import { UserService, UserProfile } from '../../services/user.service';
+import { AuthService } from '../../services/auth.service';
 import { Observable } from 'rxjs';
 
 @Component({
@@ -51,33 +52,57 @@ import { Observable } from 'rxjs';
           </div>
 
           <!-- Right side -->
-          <div class="flex items-center">
-            <!-- User Menu -->
-            <div class="ml-3 relative">
-              <div>
-                <a
-                  routerLink="/profile"
-                  class="flex items-center gap-3 max-w-xs bg-white rounded-full hover:bg-gray-50 p-1 transition-colors group"
-                >
-                  <div
-                    class="h-8 w-8 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5"
+          <div class="flex items-center gap-4">
+            <!-- Auth Status -->
+            <ng-container
+              *ngIf="authService.isAuthenticated$ | async; else signInButton"
+            >
+              <!-- User Menu -->
+              <div class="relative">
+                <div>
+                  <a
+                    routerLink="/profile"
+                    class="flex items-center gap-3 max-w-xs bg-white rounded-full hover:bg-gray-50 p-1 transition-colors group"
                   >
                     <div
-                      class="h-full w-full rounded-full bg-white overflow-hidden"
+                      class="h-8 w-8 rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 p-0.5"
                     >
-                      <img
-                        [src]="avatarUrl$ | async"
-                        [alt]="(currentUser$ | async)?.username"
-                        class="h-full w-full object-cover"
-                      />
+                      <div
+                        class="h-full w-full rounded-full bg-white overflow-hidden"
+                      >
+                        <img
+                          [src]="avatarUrl$ | async"
+                          [alt]="(currentUser$ | async)?.username"
+                          class="h-full w-full object-cover"
+                        />
+                      </div>
                     </div>
-                  </div>
-                  <span class="text-sm text-gray-700 group-hover:text-gray-900">
-                    {{ (currentUser$ | async)?.username }}
-                  </span>
-                </a>
+                    <span
+                      class="text-sm text-gray-700 group-hover:text-gray-900"
+                    >
+                      {{ (currentUser$ | async)?.username }}
+                    </span>
+                  </a>
+                </div>
               </div>
-            </div>
+              <!-- Sign Out Button -->
+              <button
+                (click)="signOut()"
+                class="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Sign Out
+              </button>
+            </ng-container>
+
+            <!-- Sign In Button -->
+            <ng-template #signInButton>
+              <a
+                routerLink="/sign-in"
+                class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+              >
+                Sign In
+              </a>
+            </ng-template>
           </div>
         </div>
       </div>
@@ -100,11 +125,22 @@ import { Observable } from 'rxjs';
   ],
 })
 export class NavComponent {
-  currentUser$: Observable<UserProfile>;
+  currentUser$: Observable<UserProfile | null>;
   avatarUrl$: Observable<string>;
 
-  constructor(private userService: UserService) {
+  constructor(
+    private userService: UserService,
+    public authService: AuthService
+  ) {
     this.currentUser$ = this.userService.getCurrentUser();
     this.avatarUrl$ = this.userService.getAvatarUrl();
+  }
+
+  async signOut() {
+    try {
+      await this.authService.signOut();
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
   }
 }

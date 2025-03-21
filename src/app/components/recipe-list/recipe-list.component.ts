@@ -214,8 +214,15 @@ export class RecipeListComponent implements OnInit {
   }
 
   loadRecipes(): void {
-    this.recipes = this.recipeService.getRecipes();
-    this.filterRecipes();
+    this.recipeService.getRecipes().subscribe(
+      (recipes) => {
+        this.recipes = recipes;
+        this.filterRecipes();
+      },
+      (error) => {
+        console.error('Error loading recipes:', error);
+      }
+    );
   }
 
   filterRecipes(): void {

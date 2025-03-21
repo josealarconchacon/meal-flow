@@ -3,6 +3,7 @@ import { Recipe } from '../models/recipe.model';
 import { BehaviorSubject, Observable } from 'rxjs';
 import { UserService } from './user.service';
 import { take } from 'rxjs/operators';
+import { FirebaseRecipeService } from './firebase-recipe.service';
 
 @Injectable({
   providedIn: 'root',
@@ -120,18 +121,21 @@ export class RecipeService {
 
   private recipesSubject = new BehaviorSubject<Recipe[]>(this.recipes);
 
-  constructor(private userService: UserService) {}
+  constructor(
+    private userService: UserService,
+    private firebaseRecipeService: FirebaseRecipeService
+  ) {}
 
-  getRecipes(): Recipe[] {
-    return this.recipes;
+  getRecipes(): Observable<Recipe[]> {
+    return this.firebaseRecipeService.getRecipes();
   }
 
   getRecipesObservable(): Observable<Recipe[]> {
     return this.recipesSubject.asObservable();
   }
 
-  getRecipeById(id: string): Recipe | undefined {
-    return this.recipes.find((recipe) => recipe.id === id);
+  async getRecipeById(id: string): Promise<Recipe | null> {
+    return await this.firebaseRecipeService.getRecipeById(id);
   }
 
   toggleFavorite(id: string): void {
@@ -166,24 +170,15 @@ export class RecipeService {
     );
   }
 
-  async addRecipe(recipe: Recipe): Promise<void> {
-    const currentUser = await this.userService
-      .getCurrentUser()
-      .pipe(take(1))
-      .toPromise();
+  async addRecipe(recipe: Omit<Recipe, 'id'>): Promise<string> {
+    return await this.firebaseRecipeService.addRecipe(recipe);
+  }
 
-    if (currentUser) {
-      const recipeWithUser: Recipe = {
-        ...recipe,
-        userId: currentUser.id,
-        username: currentUser.username,
-        userAvatarUrl: currentUser.avatarUrl,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
+  async updateRecipe(id: string, recipe: Partial<Recipe>): Promise<void> {
+    await this.firebaseRecipeService.updateRecipe(id, recipe);
+  }
 
-      this.recipes.unshift(recipeWithUser);
-      this.recipesSubject.next([...this.recipes]);
-    }
+  async deleteRecipe(id: string): Promise<void> {
+    await this.firebaseRecipeService.deleteRecipe(id);
   }
 }

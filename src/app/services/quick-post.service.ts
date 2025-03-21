@@ -1,6 +1,33 @@
 import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable, combineLatest, map } from 'rxjs';
 import { UserService } from './user.service';
+import {
+  FirebaseService,
+  FirebasePost,
+  FirebaseComment,
+} from './firebase.service';
+import { Auth, User } from '@angular/fire/auth';
+import { firstValueFrom } from 'rxjs';
+import {
+  Firestore,
+  collection,
+  addDoc,
+  deleteDoc,
+  doc,
+  updateDoc,
+  arrayUnion,
+  arrayRemove,
+  query,
+  orderBy,
+  onSnapshot,
+} from '@angular/fire/firestore';
+import {
+  Storage,
+  ref,
+  uploadBytes,
+  getDownloadURL,
+} from '@angular/fire/storage';
+import { AuthService } from './auth.service';
 
 export interface Reply {
   id: string;
@@ -12,35 +39,33 @@ export interface Reply {
   likedBy: string[];
 }
 
-export interface Comment {
-  id: string;
-  userId: string;
-  username: string;
-  text: string;
-  timestamp: string;
-  likes: number;
-  likedBy: string[];
-  replies?: Reply[];
-}
+export interface Comment extends FirebaseComment {}
 
 export interface Post {
-  id: string;
-  userId: string;
-  username: string;
+  id?: string;
   text: string;
+  tags: string[];
   timestamp: string;
   likes: number;
   likedBy: string[];
-  comments: Comment[];
-  tags: string[];
-  images?: string[];
-  video?: {
-    url: string;
-    thumbnail: string;
-    duration: number;
-  };
-  shareUrl?: string;
+  comments: FirebaseComment[];
   shares: number;
+  media?: {
+    type: 'image' | 'video';
+    content:
+      | {
+          url: string;
+          preview: string;
+          duration?: number;
+        }[]
+      | {
+          url: string;
+          preview: string;
+          duration: number;
+        };
+  };
+  userId?: string;
+  username?: string;
 }
 
 export interface ShareOption {
@@ -54,19 +79,46 @@ export interface ShareOption {
   providedIn: 'root',
 })
 export class QuickPostService {
-  private currentUser = {
-    id: 'user1',
-    username: 'Recipe Enthusiast',
-  };
-
   private posts = new BehaviorSubject<Post[]>([]);
 
-  constructor(private userService: UserService) {
-    // Initialize with some sample data if needed
-  }
+  private shareOptions: ShareOption[] = [
+    {
+      id: 'twitter',
+      label: 'Twitter',
+      icon: 'fab fa-twitter',
+      action: 'share',
+    },
+    {
+      id: 'facebook',
+      label: 'Facebook',
+      icon: 'fab fa-facebook',
+      action: 'share',
+    },
+    {
+      id: 'whatsapp',
+      label: 'WhatsApp',
+      icon: 'fab fa-whatsapp',
+      action: 'share',
+    },
+    {
+      id: 'copy',
+      label: 'Copy Link',
+      icon: 'fas fa-link',
+      action: 'copy',
+    },
+  ];
+
+  constructor(
+    private userService: UserService,
+    private firebaseService: FirebaseService,
+    private auth: Auth,
+    private firestore: Firestore,
+    private storage: Storage,
+    private authService: AuthService
+  ) {}
 
   getPosts(): Observable<Post[]> {
-    return this.posts.asObservable();
+    return this.firebaseService.getPosts();
   }
 
   getUserPosts(): Observable<Post[]> {
@@ -74,7 +126,9 @@ export class QuickPostService {
       this.getPosts(),
       this.userService.getCurrentUser(),
     ]).pipe(
-      map(([posts, user]) => posts.filter((post) => post.userId === user.id))
+      map(([posts, user]) =>
+        user ? posts.filter((post) => post.userId === user.id) : []
+      )
     );
   }
 
@@ -90,7 +144,7 @@ export class QuickPostService {
       this.userService.getCurrentUser(),
     ]).pipe(
       map(([posts, user]) =>
-        posts.filter((post) => post.likedBy?.includes(user.id))
+        user ? posts.filter((post) => post.likedBy?.includes(user.id)) : []
       )
     );
   }
@@ -101,234 +155,111 @@ export class QuickPostService {
     );
   }
 
-  getCurrentUserId(): string {
-    return this.currentUser.id;
+  getCurrentUserId(): string | null {
+    return this.auth.currentUser?.uid || null;
   }
 
-  addPost(post: Partial<Post>): void {
-    const newPost: Post = {
-      id: Date.now().toString(),
-      userId: this.currentUser.id,
-      username: this.currentUser.username,
-      text: post.text || '',
+  async addPost(post: Partial<Post>): Promise<string> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+
+    const currentUser = await firstValueFrom(this.userService.getCurrentUser());
+    if (!currentUser) throw new Error('No user profile found');
+
+    const postData: Partial<Post> = {
+      ...post,
+      userId: user.uid,
+      username: currentUser.username,
       timestamp: new Date().toISOString(),
       likes: 0,
       likedBy: [],
       comments: [],
-      tags: post.tags || [],
-      images: post.images,
-      video: post.video,
-      shareUrl: `https://example.com/post/${Date.now()}`,
-      shares: 0,
     };
 
-    this.posts.next([newPost, ...this.posts.value]);
+    return await this.firebaseService.createPost(postData);
   }
 
-  deletePost(postId: string): void {
-    this.posts.next(this.posts.value.filter((post) => post.id !== postId));
+  async deletePost(postId: string): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await this.firebaseService.deletePost(postId);
   }
 
-  likePost(postId: string): void {
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        const hasLiked = post.likedBy.includes(this.currentUser.id);
-        return {
-          ...post,
-          likes: hasLiked ? post.likes - 1 : post.likes + 1,
-          likedBy: hasLiked
-            ? post.likedBy.filter((id) => id !== this.currentUser.id)
-            : [...post.likedBy, this.currentUser.id],
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async likePost(postId: string): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await this.firebaseService.likePost(postId);
   }
 
   hasUserLikedPost(postId: string): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId) return false;
+
     const post = this.posts.value.find((p) => p.id === postId);
-    return post ? post.likedBy.includes(this.currentUser.id) : false;
+    return post ? post.likedBy?.includes(userId) || false : false;
   }
 
-  sharePost(postId: string): void {
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          shares: post.shares + 1,
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async sharePost(postId: string): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await this.firebaseService.sharePost(postId);
   }
 
-  addComment(postId: string, text: string): void {
-    const newComment: Comment = {
-      id: Date.now().toString(),
-      userId: this.currentUser.id,
-      username: this.currentUser.username,
-      text,
-      timestamp: new Date().toISOString(),
-      likes: 0,
-      likedBy: [],
-      replies: [],
-    };
-
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: [newComment, ...post.comments],
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async addComment(postId: string, text: string): Promise<string> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    return await this.firebaseService.addComment(postId, text);
   }
 
-  addReply(postId: string, commentId: string, text: string): void {
-    const newReply: Reply = {
-      id: Date.now().toString(),
-      userId: this.currentUser.id,
-      username: this.currentUser.username,
-      text,
-      timestamp: new Date().toISOString(),
-      likes: 0,
-      likedBy: [],
-    };
-
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: post.comments.map((comment) => {
-            if (comment.id === commentId) {
-              return {
-                ...comment,
-                replies: [...(comment.replies || []), newReply],
-              };
-            }
-            return comment;
-          }),
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async addReply(
+    postId: string,
+    commentId: string,
+    text: string
+  ): Promise<string> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    return await this.firebaseService.addReply(postId, commentId, text);
   }
 
-  likeComment(postId: string, commentId: string): void {
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: post.comments.map((comment) => {
-            if (comment.id === commentId) {
-              const hasLiked = comment.likedBy.includes(this.currentUser.id);
-              return {
-                ...comment,
-                likes: hasLiked ? comment.likes - 1 : comment.likes + 1,
-                likedBy: hasLiked
-                  ? comment.likedBy.filter((id) => id !== this.currentUser.id)
-                  : [...comment.likedBy, this.currentUser.id],
-              };
-            }
-            return comment;
-          }),
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async likeComment(postId: string, commentId: string): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await this.firebaseService.likeComment(postId, commentId);
   }
 
-  likeReply(postId: string, commentId: string, replyId: string): void {
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: post.comments.map((comment) => {
-            if (comment.id === commentId) {
-              return {
-                ...comment,
-                replies: (comment.replies || []).map((reply) => {
-                  if (reply.id === replyId) {
-                    const hasLiked = reply.likedBy.includes(
-                      this.currentUser.id
-                    );
-                    return {
-                      ...reply,
-                      likes: hasLiked ? reply.likes - 1 : reply.likes + 1,
-                      likedBy: hasLiked
-                        ? reply.likedBy.filter(
-                            (id) => id !== this.currentUser.id
-                          )
-                        : [...reply.likedBy, this.currentUser.id],
-                    };
-                  }
-                  return reply;
-                }),
-              };
-            }
-            return comment;
-          }),
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async likeReply(
+    postId: string,
+    commentId: string,
+    replyId: string
+  ): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await this.firebaseService.likeReply(postId, commentId, replyId);
   }
 
-  deleteComment(postId: string, commentId: string): void {
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: post.comments.filter((comment) => comment.id !== commentId),
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async deleteComment(postId: string, commentId: string): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await this.firebaseService.deleteComment(postId, commentId);
   }
 
-  deleteReply(postId: string, commentId: string, replyId: string): void {
-    const updatedPosts = this.posts.value.map((post) => {
-      if (post.id === postId) {
-        return {
-          ...post,
-          comments: post.comments.map((comment) => {
-            if (comment.id === commentId) {
-              return {
-                ...comment,
-                replies: (comment.replies || []).filter(
-                  (reply) => reply.id !== replyId
-                ),
-              };
-            }
-            return comment;
-          }),
-        };
-      }
-      return post;
-    });
-
-    this.posts.next(updatedPosts);
+  async deleteReply(
+    postId: string,
+    commentId: string,
+    replyId: string
+  ): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+    await this.firebaseService.deleteReply(postId, commentId, replyId);
   }
 
   hasUserLikedComment(postId: string, commentId: string): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId) return false;
+
     const post = this.posts.value.find((p) => p.id === postId);
-    const comment = post?.comments.find((c) => c.id === commentId);
-    return comment ? comment.likedBy.includes(this.currentUser.id) : false;
+    const comment = post?.comments?.find((c) => c.id === commentId);
+    return comment ? comment.likedBy?.includes(userId) || false : false;
   }
 
   hasUserLikedReply(
@@ -336,38 +267,54 @@ export class QuickPostService {
     commentId: string,
     replyId: string
   ): boolean {
+    const userId = this.getCurrentUserId();
+    if (!userId) return false;
+
     const post = this.posts.value.find((p) => p.id === postId);
-    const comment = post?.comments.find((c) => c.id === commentId);
+    const comment = post?.comments?.find((c) => c.id === commentId);
     const reply = comment?.replies?.find((r) => r.id === replyId);
-    return reply ? reply.likedBy.includes(this.currentUser.id) : false;
+    return reply ? reply.likedBy?.includes(userId) || false : false;
   }
 
   getShareOptions(): ShareOption[] {
-    return [
-      {
-        id: 'copy',
-        label: 'Copy Link',
-        icon: 'fas fa-link',
-        action: 'copy',
-      },
-      {
-        id: 'facebook',
-        label: 'Share on Facebook',
-        icon: 'fab fa-facebook',
-        action: 'share',
-      },
-      {
-        id: 'twitter',
-        label: 'Share on Twitter',
-        icon: 'fab fa-twitter',
-        action: 'share',
-      },
-      {
-        id: 'whatsapp',
-        label: 'Share on WhatsApp',
-        icon: 'fab fa-whatsapp',
-        action: 'share',
-      },
-    ];
+    return this.shareOptions;
+  }
+
+  async uploadMedia(file: File, folder: 'images' | 'videos'): Promise<string> {
+    try {
+      // Get current user and ensure they are authenticated
+      const user = this.auth.currentUser;
+      if (!user) {
+        throw new Error('User must be authenticated to upload media');
+      }
+
+      // Create metadata for the file
+      const metadata = {
+        contentType: file.type,
+        customMetadata: {
+          'uploaded-by': user.uid,
+          'original-name': file.name,
+        },
+      };
+
+      const timestamp = new Date().getTime();
+      const filePath = `${folder}/${user.uid}/${timestamp}_${file.name}`;
+      const storageRef = ref(this.storage, filePath);
+
+      // Upload the file with metadata
+      const snapshot = await uploadBytes(storageRef, file, metadata);
+      const downloadUrl = await getDownloadURL(snapshot.ref);
+      return downloadUrl;
+    } catch (error: any) {
+      console.error('Error uploading media:', error);
+      if (error.code === 'storage/unauthorized') {
+        throw new Error('You must be authenticated to upload media');
+      } else if (error.code === 'storage/canceled') {
+        throw new Error('Upload was cancelled');
+      } else if (error.code === 'storage/unknown') {
+        throw new Error('An unknown error occurred during upload');
+      }
+      throw error;
+    }
   }
 }

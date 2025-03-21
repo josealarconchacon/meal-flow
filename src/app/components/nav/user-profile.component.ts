@@ -9,6 +9,12 @@ import {
 } from '../../services/user.service';
 import { QuickPostService, Post } from '../../services/quick-post.service';
 import { Observable, map, take, switchMap, firstValueFrom } from 'rxjs';
+import {
+  ImageItem,
+  VideoItem,
+  StoredImageItem,
+  StoredVideoItem,
+} from '../recipe-list/quick-post/models/quick-post.models';
 
 @Component({
   selector: 'app-user-profile',
@@ -396,38 +402,55 @@ import { Observable, map, take, switchMap, firstValueFrom } from 'rxjs';
 
                       <p class="text-gray-900 mb-4">{{ post.text }}</p>
 
-                      <!-- Post Media -->
-                      <div
-                        *ngIf="
-                          post.images?.length ||
-                          (post.video?.url && post.video?.thumbnail)
-                        "
-                        class="rounded-xl overflow-hidden mb-4"
-                      >
-                        <ng-container
-                          *ngIf="post.images && post.images.length > 0"
-                        >
-                          <img
-                            [src]="post.images[0] || ''"
-                            alt="Post image"
-                            class="w-full h-64 object-cover"
-                          />
-                        </ng-container>
-                        <ng-container
-                          *ngIf="post.video?.url && post.video?.thumbnail"
-                        >
-                          <video
-                            [attr.poster]="post.video?.thumbnail"
-                            controls
-                            class="w-full"
+                      <!-- Media Preview -->
+                      <ng-container *ngIf="post.media">
+                        <ng-container *ngIf="post.media.content">
+                          <!-- Image Preview -->
+                          <div
+                            *ngIf="
+                              post.media.type === 'image' &&
+                              isImageArray(post.media.content) &&
+                              post.media.content.length > 0 &&
+                              post.media.content[0]?.preview
+                            "
+                            class="relative aspect-video rounded-lg overflow-hidden bg-gray-100"
                           >
-                            <source
-                              [attr.src]="post.video?.url"
-                              type="video/mp4"
+                            <img
+                              [src]="post.media.content[0].preview"
+                              alt="Post image"
+                              class="w-full h-full object-cover"
                             />
-                          </video>
+                          </div>
+
+                          <!-- Video Preview -->
+                          <ng-container
+                            *ngIf="
+                              post.media.type === 'video' &&
+                              !isImageArray(post.media.content)
+                            "
+                          >
+                            <div
+                              *ngIf="
+                                post.media.content.preview &&
+                                post.media.content.url
+                              "
+                              class="relative aspect-video rounded-lg overflow-hidden bg-gray-100"
+                            >
+                              <video
+                                [attr.poster]="post.media.content.preview"
+                                controls
+                                class="w-full h-full"
+                              >
+                                <source
+                                  [attr.src]="post.media.content.url"
+                                  type="video/mp4"
+                                />
+                                Your browser does not support the video tag.
+                              </video>
+                            </div>
+                          </ng-container>
                         </ng-container>
-                      </div>
+                      </ng-container>
 
                       <!-- Post Stats -->
                       <div
@@ -632,8 +655,9 @@ export class UserProfileComponent implements OnInit {
   @ViewChild('avatarInput') avatarInput!: ElementRef<HTMLInputElement>;
   @Input() userId: string | undefined;
 
-  currentUser$: Observable<UserProfile>;
-  profileUser$: Observable<UserProfile> = new Observable<UserProfile>();
+  currentUser$: Observable<UserProfile | null>;
+  profileUser$: Observable<UserProfile | null> =
+    new Observable<UserProfile | null>();
   userPosts$: Observable<Post[]> = new Observable<Post[]>();
   likedPosts$: Observable<Post[]> = new Observable<Post[]>();
   isFollowing$: Observable<boolean> = new Observable<boolean>();
@@ -677,7 +701,7 @@ export class UserProfileComponent implements OnInit {
 
       // Check if this is our own profile
       this.currentUser$.pipe(take(1)).subscribe((currentUser) => {
-        this.isOwnProfile = currentUser.id === this.userId;
+        this.isOwnProfile = currentUser?.id === this.userId;
       });
 
       // Get posts for the profile we're viewing
@@ -699,7 +723,7 @@ export class UserProfileComponent implements OnInit {
   ): Observable<string | undefined> {
     return this.profileUser$.pipe(
       map(
-        (user) => user.socialMedia?.find((sm) => sm.platform === platform)?.url
+        (user) => user?.socialMedia?.find((sm) => sm.platform === platform)?.url
       )
     );
   }
@@ -776,5 +800,16 @@ export class UserProfileComponent implements OnInit {
     } else {
       await this.userService.followUser(this.userId);
     }
+  }
+
+  isImageArray(
+    content:
+      | ImageItem[]
+      | VideoItem
+      | StoredImageItem[]
+      | StoredVideoItem
+      | undefined
+  ): content is ImageItem[] | StoredImageItem[] {
+    return Array.isArray(content);
   }
 }

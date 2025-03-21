@@ -1,0 +1,93 @@
+<div class="comment-panel">
+  <!-- Comment input -->
+  <div class="comment-input">
+    <textarea
+      [(ngModel)]="newCommentText"
+      placeholder="Write a comment..."
+      rows="3"
+    ></textarea>
+    <button (click)="submitComment()" [disabled]="!newCommentText.trim()">
+      Post Comment
+    </button>
+  </div>
+
+  <!-- Comments list -->
+  <div class="comments-list">
+    <div *ngFor="let comment of comments" class="comment">
+      <div class="comment-header">
+        <span class="username">{{ comment.username }}</span>
+        <span class="timestamp">{{ comment.timestamp | date : "medium" }}</span>
+      </div>
+      <div class="comment-content">{{ comment.text }}</div>
+      <div class="comment-actions">
+        <button (click)="comment.id && likeComment(comment.id)">
+          {{ comment.likes }} {{ comment.likes === 1 ? "Like" : "Likes" }}
+        </button>
+        <button (click)="comment.id ? toggleReplyInput(comment.id) : null">
+          Reply
+        </button>
+        <button
+          *ngIf="
+            comment.id &&
+            comment.userId &&
+            firebaseService.isCurrentUserOwner(comment.userId)
+          "
+          (click)="comment.id && deleteComment(comment.id)"
+        >
+          Delete
+        </button>
+      </div>
+
+      <!-- Reply input -->
+      <div *ngIf="comment.id && showReplyInput[comment.id]" class="reply-input">
+        <textarea
+          [ngModel]="replyTexts[comment.id] || ''"
+          (ngModelChange)="replyTexts[comment.id] = $event"
+          placeholder="Write a reply..."
+          rows="2"
+        ></textarea>
+        <button
+          [disabled]="!replyTexts[comment.id]?.trim()"
+          (click)="comment.id && submitReply(comment.id)"
+        >
+          Post Reply
+        </button>
+      </div>
+
+      <!-- Replies list -->
+      <div class="replies-list">
+        <div *ngFor="let reply of comment.replies" class="reply">
+          <div class="reply-header">
+            <span class="username">{{ reply.username }}</span>
+            <span class="timestamp">{{
+              reply.timestamp | date : "medium"
+            }}</span>
+          </div>
+          <div class="reply-content">{{ reply.text }}</div>
+          <div class="reply-actions">
+            <button
+              (click)="
+                comment.id && reply.id && likeReply(comment.id, reply.id)
+              "
+            >
+              {{ reply.likes }} {{ reply.likes === 1 ? "Like" : "Likes" }}
+            </button>
+            <button
+              *ngIf="
+                comment.id &&
+                reply.id &&
+                reply.userId &&
+                firebaseService.isCurrentUserOwner(reply.userId)
+              "
+              (click)="
+                comment.id && reply.id && deleteReply(comment.id, reply.id)
+              "
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

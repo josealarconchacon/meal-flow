@@ -1,5 +1,5 @@
 import { Injectable } from '@angular/core';
-import { BehaviorSubject, Observable, combineLatest, map } from 'rxjs';
+import { BehaviorSubject, Observable, combineLatest, map, from } from 'rxjs';
 import { UserService } from './user.service';
 import {
   FirebaseService,
@@ -20,6 +20,8 @@ import {
   query,
   orderBy,
   onSnapshot,
+  getDocs,
+  getDoc,
 } from '@angular/fire/firestore';
 import {
   Storage,
@@ -28,45 +30,7 @@ import {
   getDownloadURL,
 } from '@angular/fire/storage';
 import { AuthService } from './auth.service';
-
-export interface Reply {
-  id: string;
-  userId: string;
-  username: string;
-  text: string;
-  timestamp: string;
-  likes: number;
-  likedBy: string[];
-}
-
-export interface Comment extends FirebaseComment {}
-
-export interface Post {
-  id?: string;
-  text: string;
-  tags: string[];
-  timestamp: string;
-  likes: number;
-  likedBy: string[];
-  comments: FirebaseComment[];
-  shares: number;
-  media?: {
-    type: 'image' | 'video';
-    content:
-      | {
-          url: string;
-          preview: string;
-          duration?: number;
-        }[]
-      | {
-          url: string;
-          preview: string;
-          duration: number;
-        };
-  };
-  userId?: string;
-  username?: string;
-}
+import { PostValidators } from '../models/post.model';
 
 export interface ShareOption {
   id: string;
@@ -75,11 +39,44 @@ export interface ShareOption {
   action: 'share' | 'copy';
 }
 
+export interface Post {
+  id: string;
+  text: string;
+  userId: string;
+  username: string;
+  timestamp: Date;
+  likes: number;
+  likedBy: string[];
+  comments: Comment[];
+  shares: number;
+  tags?: string[];
+  media?: {
+    type: 'image' | 'video';
+    content: any;
+  };
+}
+
+export interface Comment {
+  id: string;
+  text: string;
+  userId: string;
+  username: string;
+  timestamp: Date;
+  likes: number;
+  likedBy: string[];
+  replies: Reply[];
+}
+
+export interface Reply extends Comment {
+  parentCommentId: string;
+}
+
 @Injectable({
   providedIn: 'root',
 })
 export class QuickPostService {
   private posts = new BehaviorSubject<Post[]>([]);
+  private readonly POSTS_COLLECTION = 'posts';
 
   private shareOptions: ShareOption[] = [
     {
@@ -118,7 +115,20 @@ export class QuickPostService {
   ) {}
 
   getPosts(): Observable<Post[]> {
-    return this.firebaseService.getPosts();
+    const postsRef = collection(this.firestore, this.POSTS_COLLECTION);
+    const q = query(postsRef, orderBy('timestamp', 'desc'));
+
+    return from(getDocs(q)).pipe(
+      map((snapshot) =>
+        snapshot.docs.map(
+          (doc) =>
+            ({
+              id: doc.id,
+              ...doc.data(),
+            } as Post)
+        )
+      )
+    );
   }
 
   getUserPosts(): Observable<Post[]> {
@@ -159,36 +169,41 @@ export class QuickPostService {
     return this.auth.currentUser?.uid || null;
   }
 
-  async addPost(post: Partial<Post>): Promise<string> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No authenticated user');
+  async createPost(post: Post): Promise<string> {
+    if (!PostValidators.validatePost(post)) {
+      throw new Error('Invalid post data');
+    }
 
-    const currentUser = await firstValueFrom(this.userService.getCurrentUser());
-    if (!currentUser) throw new Error('No user profile found');
-
-    const postData: Partial<Post> = {
-      ...post,
-      userId: user.uid,
-      username: currentUser.username,
-      timestamp: new Date().toISOString(),
-      likes: 0,
-      likedBy: [],
-      comments: [],
-    };
-
-    return await this.firebaseService.createPost(postData);
+    const postsRef = collection(this.firestore, this.POSTS_COLLECTION);
+    const docRef = await addDoc(postsRef, post);
+    return docRef.id;
   }
 
   async deletePost(postId: string): Promise<void> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No authenticated user');
-    await this.firebaseService.deletePost(postId);
+    const postRef = doc(this.firestore, this.POSTS_COLLECTION, postId);
+    await deleteDoc(postRef);
   }
 
-  async likePost(postId: string): Promise<void> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No authenticated user');
-    await this.firebaseService.likePost(postId);
+  async likePost(postId: string, userId: string): Promise<void> {
+    const postRef = doc(this.firestore, this.POSTS_COLLECTION, postId);
+    const post = (
+      await getDocs(query(collection(this.firestore, this.POSTS_COLLECTION)))
+    ).docs.find((doc) => doc.id === postId);
+
+    if (!post) {
+      throw new Error('Post not found');
+    }
+
+    const postData = post.data() as Post;
+    const likedBy = postData.likedBy || [];
+    const isLiked = likedBy.includes(userId);
+
+    await updateDoc(postRef, {
+      likes: isLiked ? postData.likes - 1 : postData.likes + 1,
+      likedBy: isLiked
+        ? likedBy.filter((id) => id !== userId)
+        : [...likedBy, userId],
+    });
   }
 
   hasUserLikedPost(postId: string): boolean {
@@ -205,36 +220,70 @@ export class QuickPostService {
     await this.firebaseService.sharePost(postId);
   }
 
-  async addComment(postId: string, text: string): Promise<string> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No authenticated user');
-    return await this.firebaseService.addComment(postId, text);
+  async addComment(postId: string, comment: Comment): Promise<void> {
+    if (!PostValidators.validateComment(comment)) {
+      throw new Error('Invalid comment data');
+    }
+
+    const postRef = doc(this.firestore, this.POSTS_COLLECTION, postId);
+    const post = (
+      await getDocs(query(collection(this.firestore, this.POSTS_COLLECTION)))
+    ).docs.find((doc) => doc.id === postId);
+
+    if (!post) {
+      throw new Error('Post not found');
+    }
+
+    const postData = post.data() as Post;
+    const comments = postData.comments || [];
+
+    await updateDoc(postRef, {
+      comments: [...comments, comment],
+    });
   }
 
   async addReply(
     postId: string,
     commentId: string,
-    text: string
-  ): Promise<string> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No authenticated user');
-    return await this.firebaseService.addReply(postId, commentId, text);
-  }
-
-  async likeComment(postId: string, commentId: string): Promise<void> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No authenticated user');
-    await this.firebaseService.likeComment(postId, commentId);
-  }
-
-  async likeReply(
-    postId: string,
-    commentId: string,
-    replyId: string
+    reply: Reply
   ): Promise<void> {
-    const user = this.auth.currentUser;
-    if (!user) throw new Error('No authenticated user');
-    await this.firebaseService.likeReply(postId, commentId, replyId);
+    if (!PostValidators.validateReply(reply)) {
+      throw new Error('Invalid reply data');
+    }
+
+    const postRef = doc(this.firestore, this.POSTS_COLLECTION, postId);
+    const post = (
+      await getDocs(query(collection(this.firestore, this.POSTS_COLLECTION)))
+    ).docs.find((doc) => doc.id === postId);
+
+    if (!post) {
+      throw new Error('Post not found');
+    }
+
+    const postData = post.data() as Post;
+    const comments = postData.comments || [];
+    const commentIndex = comments.findIndex((c) => c.id === commentId);
+
+    if (commentIndex === -1) {
+      throw new Error('Comment not found');
+    }
+
+    const comment = comments[commentIndex];
+    const replies = comment.replies || [];
+
+    // Initialize likes and likedBy for the new reply
+    const replyWithLikes: Reply = {
+      ...reply,
+      likes: 0,
+      likedBy: [],
+    };
+
+    comments[commentIndex] = {
+      ...comment,
+      replies: [...replies, replyWithLikes],
+    };
+
+    await updateDoc(postRef, { comments });
   }
 
   async deleteComment(postId: string, commentId: string): Promise<void> {
@@ -316,5 +365,76 @@ export class QuickPostService {
       }
       throw error;
     }
+  }
+
+  async likeComment(postId: string, commentId: string): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+
+    const postRef = doc(this.firestore, this.POSTS_COLLECTION, postId);
+    const post = await getDoc(postRef);
+    if (!post.exists()) throw new Error('Post not found');
+
+    const postData = post.data() as Post;
+    const comments = postData.comments || [];
+    const commentIndex = comments.findIndex((c) => c.id === commentId);
+    if (commentIndex === -1) throw new Error('Comment not found');
+
+    const comment = comments[commentIndex];
+    const userLiked = comment.likedBy.includes(user.uid);
+
+    comments[commentIndex] = {
+      ...comment,
+      likes: userLiked ? comment.likes - 1 : comment.likes + 1,
+      likedBy: userLiked
+        ? comment.likedBy.filter((id) => id !== user.uid)
+        : [...comment.likedBy, user.uid],
+    };
+
+    await updateDoc(postRef, { comments });
+  }
+
+  async likeReply(
+    postId: string,
+    commentId: string,
+    replyId: string
+  ): Promise<void> {
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
+
+    const postRef = doc(this.firestore, this.POSTS_COLLECTION, postId);
+    const post = await getDoc(postRef);
+    if (!post.exists()) throw new Error('Post not found');
+
+    const postData = post.data() as Post;
+    const comments = postData.comments || [];
+    const commentIndex = comments.findIndex((c) => c.id === commentId);
+    if (commentIndex === -1) throw new Error('Comment not found');
+
+    const comment = comments[commentIndex];
+    const replies = comment.replies || [];
+    const replyIndex = replies.findIndex((r) => r.id === replyId);
+    if (replyIndex === -1) throw new Error('Reply not found');
+
+    const reply = replies[replyIndex];
+    if (!reply.likedBy) reply.likedBy = [];
+    if (typeof reply.likes !== 'number') reply.likes = 0;
+
+    const userLiked = reply.likedBy.includes(user.uid);
+
+    replies[replyIndex] = {
+      ...reply,
+      likes: userLiked ? reply.likes - 1 : reply.likes + 1,
+      likedBy: userLiked
+        ? reply.likedBy.filter((id) => id !== user.uid)
+        : [...reply.likedBy, user.uid],
+    };
+
+    comments[commentIndex] = {
+      ...comment,
+      replies,
+    };
+
+    await updateDoc(postRef, { comments });
   }
 }

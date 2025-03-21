@@ -3,14 +3,18 @@ export interface SocialMedia {
   url: string;
 }
 
-export interface UserProfile {
-  id: string;
+export interface UserProfileData {
   username: string;
-  bio?: string;
+  email: string;
   avatarUrl?: string;
+  bio?: string;
+  followers: string[];
+  following: string[];
   socialMedia?: SocialMedia[];
-  followers: string[]; // Array of user IDs who follow this user
-  following: string[]; // Array of user IDs this user follows
-  createdAt: string;
-  updatedAt: string;
+}
+
+export interface UserProfile extends UserProfileData {
+  id: string;
+  createdAt: Date;
+  updatedAt: Date;
 }

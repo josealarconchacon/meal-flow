@@ -781,8 +781,8 @@ export class UserProfileComponent implements OnInit {
     }
   }
 
-  formatDate(timestamp: string): string {
-    const date = new Date(timestamp);
+  formatDate(timestamp: Date | string): string {
+    const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
     return date.toLocaleDateString('en-US', {
       month: 'short',
       day: 'numeric',

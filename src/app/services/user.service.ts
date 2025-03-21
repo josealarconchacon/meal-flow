@@ -1,7 +1,7 @@
 import { Injectable, PLATFORM_ID, Inject } from '@angular/core';
-import { BehaviorSubject, Observable, of } from 'rxjs';
+import { BehaviorSubject, Observable, of, from } from 'rxjs';
 import { Post } from './quick-post.service';
-import { map, switchMap } from 'rxjs/operators';
+import { map, switchMap, catchError } from 'rxjs/operators';
 import { isPlatformBrowser } from '@angular/common';
 import { Auth } from '@angular/fire/auth';
 import {
@@ -10,82 +10,92 @@ import {
   getDoc,
   setDoc,
   updateDoc,
+  Timestamp,
 } from '@angular/fire/firestore';
+import { ref, uploadBytes, getDownloadURL } from '@angular/fire/storage';
+import { Storage } from '@angular/fire/storage';
+import {
+  UserProfile,
+  UserProfileData,
+  SocialMedia,
+} from '../models/user.model';
 
-export interface SocialMedia {
-  platform: 'twitter' | 'facebook' | 'instagram' | 'linkedin';
-  url: string;
-}
-
-// Interface for data stored in Firestore (without id)
-export interface UserProfileData {
-  username: string;
-  bio: string;
-  avatarUrl?: string;
-  followers: string[];
-  following: string[];
-  createdAt: string;
-  updatedAt: string;
-  socialMedia?: SocialMedia[];
-}
-
-// Interface for the full user profile including id
-export interface UserProfile extends UserProfileData {
-  id: string;
-}
+export type { UserProfile, UserProfileData, SocialMedia };
 
 @Injectable({
   providedIn: 'root',
 })
 export class UserService {
+  private readonly DEFAULT_AVATAR_URL = 'assets/images/default-avatar.png';
   private currentUser = new BehaviorSubject<UserProfile | null>(null);
-  private defaultAvatarUrl = 'assets/images/default-avatar.png';
+  private avatarUrl = new BehaviorSubject<string>(this.DEFAULT_AVATAR_URL);
   private isBrowser: boolean;
 
   constructor(
     @Inject(PLATFORM_ID) platformId: Object,
     private auth: Auth,
-    private firestore: Firestore
+    private firestore: Firestore,
+    private storage: Storage
   ) {
     this.isBrowser = isPlatformBrowser(platformId);
 
-    // Subscribe to auth state changes
+    if (this.isBrowser) {
+      this.initializeUser();
+    }
+  }
+
+  private async initializeUser(): Promise<void> {
     this.auth.onAuthStateChanged(async (user) => {
       if (user) {
-        // User is signed in, get their profile from Firestore
         const userDoc = await getDoc(doc(this.firestore, 'users', user.uid));
         if (userDoc.exists()) {
-          const userData = this.convertToUserProfile(
-            userDoc.data() as UserProfileData,
-            user.uid
-          );
+          const data = userDoc.data();
+          const userData: UserProfile = {
+            ...data,
+            id: user.uid,
+            username: data['username'],
+            email: data['email'],
+            bio: data['bio'] || '',
+            avatarUrl: data['avatarUrl'] || this.DEFAULT_AVATAR_URL,
+            followers: data['followers'] || [],
+            following: data['following'] || [],
+            createdAt:
+              data['createdAt'] instanceof Timestamp
+                ? data['createdAt'].toDate()
+                : new Date(data['createdAt']),
+            updatedAt:
+              data['updatedAt'] instanceof Timestamp
+                ? data['updatedAt'].toDate()
+                : new Date(data['updatedAt']),
+          };
           this.currentUser.next(userData);
+          this.avatarUrl.next(userData.avatarUrl || this.DEFAULT_AVATAR_URL);
         } else {
           // Create new user profile if it doesn't exist
-          const newUserData: UserProfileData = {
+          const now = new Date();
+          const newUserData: UserProfile = {
+            id: user.uid,
             username: user.displayName || 'New User',
+            email: user.email || '',
             bio: 'Welcome to MealFlow!',
-            avatarUrl: user.photoURL || this.defaultAvatarUrl,
+            avatarUrl: user.photoURL || this.DEFAULT_AVATAR_URL,
             followers: [],
             following: [],
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-            socialMedia: [],
+            createdAt: now,
+            updatedAt: now,
           };
-
-          // Create the full user profile with ID
-          const newUser: UserProfile = {
-            ...newUserData,
-            id: user.uid,
-          };
-
-          // Store in Firestore (without the id field)
-          await setDoc(doc(this.firestore, 'users', user.uid), newUserData);
-          this.currentUser.next(newUser);
+          const { id, ...dataForFirestore } = newUserData;
+          await setDoc(doc(this.firestore, 'users', user.uid), {
+            ...dataForFirestore,
+            createdAt: Timestamp.fromDate(now),
+            updatedAt: Timestamp.fromDate(now),
+          });
+          this.currentUser.next(newUserData);
+          this.avatarUrl.next(newUserData.avatarUrl || this.DEFAULT_AVATAR_URL);
         }
       } else {
-        // User is signed out
         this.currentUser.next(null);
+        this.avatarUrl.next(this.DEFAULT_AVATAR_URL);
       }
     });
   }
@@ -95,31 +105,48 @@ export class UserService {
   }
 
   getUserProfile(userId: string): Observable<UserProfile | null> {
-    return new Observable<UserProfile | null>((observer) => {
-      getDoc(doc(this.firestore, 'users', userId))
-        .then((docSnap) => {
-          if (docSnap.exists()) {
-            observer.next(
-              this.convertToUserProfile(
-                docSnap.data() as UserProfileData,
-                userId
-              )
-            );
-          } else {
-            observer.next(null);
-          }
-          observer.complete();
-        })
-        .catch((error) => {
-          console.error('Error fetching user profile:', error);
-          observer.error(error);
-        });
-    });
+    return from(getDoc(doc(this.firestore, 'users', userId))).pipe(
+      map((userDoc) => {
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          return {
+            id: userId,
+            username: data['username'],
+            email: data['email'],
+            bio: data['bio'] || '',
+            avatarUrl: data['avatarUrl'] || this.DEFAULT_AVATAR_URL,
+            followers: data['followers'] || [],
+            following: data['following'] || [],
+            createdAt:
+              data['createdAt'] instanceof Timestamp
+                ? data['createdAt'].toDate()
+                : new Date(data['createdAt']),
+            updatedAt:
+              data['updatedAt'] instanceof Timestamp
+                ? data['updatedAt'].toDate()
+                : new Date(data['updatedAt']),
+          };
+        }
+        return null;
+      }),
+      catchError(() => of(null))
+    );
   }
 
   getAvatarUrl(): Observable<string> {
-    return this.currentUser.pipe(
-      map((user) => user?.avatarUrl || this.defaultAvatarUrl)
+    return this.avatarUrl.asObservable();
+  }
+
+  getAvatarUrlForUser(userId: string): Observable<string> {
+    return from(getDoc(doc(this.firestore, 'users', userId))).pipe(
+      map((userDoc) => {
+        if (userDoc.exists()) {
+          const data = userDoc.data();
+          return data['avatarUrl'] || this.DEFAULT_AVATAR_URL;
+        }
+        return this.DEFAULT_AVATAR_URL;
+      }),
+      catchError(() => of(this.DEFAULT_AVATAR_URL))
     );
   }
 
@@ -127,67 +154,72 @@ export class UserService {
     const user = this.auth.currentUser;
     if (!user) throw new Error('No authenticated user');
 
-    const current = this.currentUser.value;
-    if (!current) throw new Error('No current user data');
-
-    // Create a plain object for Firestore update
-    const updateData: Partial<UserProfileData> = {
+    const userRef = doc(this.firestore, 'users', user.uid);
+    const updateData = {
       ...updates,
-      updatedAt: new Date().toISOString(),
+      updatedAt: Timestamp.fromDate(new Date()),
     };
 
-    await updateDoc(doc(this.firestore, 'users', user.uid), updateData);
+    await updateDoc(userRef, updateData);
 
-    // Update local state with full profile data
-    const updatedProfile: UserProfile = {
-      ...current,
-      ...updateData,
-    };
-    this.currentUser.next(updatedProfile);
-  }
-
-  private convertToUserProfile(
-    data: UserProfileData,
-    userId: string
-  ): UserProfile {
-    return {
-      ...data,
-      id: userId,
-      username: data.username || '',
-      bio: data.bio || '',
-      followers: data.followers || [],
-      following: data.following || [],
-      createdAt: data.createdAt || new Date().toISOString(),
-      updatedAt: data.updatedAt || new Date().toISOString(),
-      socialMedia: data.socialMedia || [],
-    };
+    // Update local state
+    const updatedDoc = await getDoc(userRef);
+    if (updatedDoc.exists()) {
+      const data = updatedDoc.data();
+      const userData: UserProfile = {
+        id: user.uid,
+        username: data['username'],
+        email: data['email'],
+        bio: data['bio'] || '',
+        avatarUrl: data['avatarUrl'] || this.DEFAULT_AVATAR_URL,
+        followers: data['followers'] || [],
+        following: data['following'] || [],
+        createdAt:
+          data['createdAt'] instanceof Timestamp
+            ? data['createdAt'].toDate()
+            : new Date(data['createdAt']),
+        updatedAt:
+          data['updatedAt'] instanceof Timestamp
+            ? data['updatedAt'].toDate()
+            : new Date(data['updatedAt']),
+      };
+      this.currentUser.next(userData);
+      if (updates.avatarUrl) {
+        this.avatarUrl.next(updates.avatarUrl);
+      }
+    }
   }
 
   async updateAvatar(file: File): Promise<void> {
-    const reader = new FileReader();
-    return new Promise((resolve, reject) => {
-      reader.onload = async (e) => {
-        try {
-          const avatarUrl = e.target?.result as string;
-          await this.updateProfile({ avatarUrl });
+    const user = this.auth.currentUser;
+    if (!user) throw new Error('No authenticated user');
 
-          // Get current user data
-          const current = this.currentUser.value;
-          if (!current) throw new Error('No current user data');
+    // Create a reference to the avatar storage location
+    const storageRef = ref(this.storage, `avatars/${user.uid}/${file.name}`);
 
-          // Update local state
-          this.currentUser.next({
-            ...current,
-            avatarUrl,
-          });
-          resolve();
-        } catch (error) {
-          reject(error);
-        }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsDataURL(file);
-    });
+    try {
+      // Upload the file
+      const snapshot = await uploadBytes(storageRef, file);
+
+      // Get the download URL
+      const avatarUrl = await getDownloadURL(snapshot.ref);
+
+      // Update the user profile with the new avatar URL
+      await this.updateProfile({ avatarUrl });
+
+      // Get current user data
+      const current = this.currentUser.value;
+      if (!current) throw new Error('No current user data');
+
+      // Update local state
+      this.currentUser.next({
+        ...current,
+        avatarUrl,
+      });
+    } catch (error) {
+      console.error('Error updating avatar:', error);
+      throw error;
+    }
   }
 
   async addSocialMedia(
@@ -225,15 +257,16 @@ export class UserService {
     if (!currentUser) throw new Error('No current user data');
 
     if (!currentUser.following.includes(userIdToFollow)) {
+      const now = new Date();
       const updatedUser: UserProfile = {
         ...currentUser,
         following: [...currentUser.following, userIdToFollow],
-        updatedAt: new Date().toISOString(),
+        updatedAt: now,
       };
 
       await updateDoc(doc(this.firestore, 'users', user.uid), {
         following: updatedUser.following,
-        updatedAt: updatedUser.updatedAt,
+        updatedAt: Timestamp.fromDate(now),
       });
 
       this.currentUser.next(updatedUser);
@@ -247,15 +280,16 @@ export class UserService {
     const currentUser = this.currentUser.value;
     if (!currentUser) throw new Error('No current user data');
 
+    const now = new Date();
     const updatedUser: UserProfile = {
       ...currentUser,
       following: currentUser.following.filter((id) => id !== userIdToUnfollow),
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
     };
 
     await updateDoc(doc(this.firestore, 'users', user.uid), {
       following: updatedUser.following,
-      updatedAt: updatedUser.updatedAt,
+      updatedAt: Timestamp.fromDate(now),
     });
 
     this.currentUser.next(updatedUser);

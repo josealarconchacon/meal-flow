@@ -11,6 +11,7 @@ import { FormsModule } from '@angular/forms';
 import {
   Post,
   Comment,
+  Reply,
   QuickPostService,
 } from '../../../services/quick-post.service';
 import { UserService, UserProfile } from '../../../services/user.service';
@@ -22,15 +23,23 @@ interface ExtendedUserProfile extends UserProfile {
   uid: string;
 }
 
-interface ExtendedPost extends Post {
+interface ExtendedPost extends Omit<Post, 'comments'> {
   id: string;
   comments: ExtendedComment[];
   username: string;
 }
 
-interface ExtendedComment extends Comment {
+interface ExtendedComment extends Omit<Comment, 'replies'> {
   id: string;
-  replies?: ExtendedComment[];
+  userId: string;
+  username: string;
+  likedBy: string[];
+  replies: ExtendedReply[];
+}
+
+interface ExtendedReply extends Reply {
+  id: string;
+  userId: string;
   username: string;
   likedBy: string[];
 }
@@ -147,8 +156,8 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
     this.close.emit();
   }
 
-  formatDate(timestamp: string): string {
-    const date = new Date(timestamp);
+  formatDate(timestamp: Date | string): string {
+    const date = timestamp instanceof Date ? timestamp : new Date(timestamp);
     const now = new Date();
     const diff = now.getTime() - date.getTime();
     const seconds = Math.floor(diff / 1000);
@@ -186,9 +195,12 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
   private findReply(
     commentId: string,
     replyId: string
-  ): ExtendedComment | undefined {
+  ): ExtendedReply | undefined {
     const comment = this.findComment(commentId);
-    return comment?.replies?.find((reply) => reply.id === replyId);
+    return comment?.replies?.find(
+      (reply): reply is ExtendedReply =>
+        reply.id === replyId && 'username' in reply
+    );
   }
 
   hasUserLikedComment(commentId: string): boolean {
@@ -230,10 +242,17 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
     this.isSubmitting = true;
 
     try {
-      await this.quickPostService.addComment(
-        this.post.id,
-        this.newComment.trim()
-      );
+      const comment: Comment = {
+        id: crypto.randomUUID(),
+        text: this.newComment.trim(),
+        userId: this.currentUser?.uid || '',
+        username: this.currentUser?.username || '',
+        timestamp: new Date(),
+        likes: 0,
+        likedBy: [],
+        replies: [],
+      };
+      await this.quickPostService.addComment(this.post.id, comment);
       this.newComment = '';
     } catch (error) {
       console.error('Error submitting comment:', error);
@@ -247,12 +266,20 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
     this.isSubmitting = true;
 
     try {
-      await this.quickPostService.addReply(
-        this.post.id,
-        commentId,
-        this.replyText.trim()
-      );
-      this.cancelReply();
+      const reply: Reply = {
+        id: crypto.randomUUID(),
+        text: this.replyText.trim(),
+        userId: this.currentUser?.uid || '',
+        username: this.currentUser?.username || '',
+        timestamp: new Date(),
+        likes: 0,
+        likedBy: [],
+        replies: [],
+        parentCommentId: commentId,
+      };
+      await this.quickPostService.addReply(this.post.id, commentId, reply);
+      this.replyText = '';
+      this.replyingToId = null;
     } catch (error) {
       console.error('Error submitting reply:', error);
     } finally {
@@ -261,6 +288,7 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
   }
 
   async likeComment(commentId: string): Promise<void> {
+    if (!this.currentUser) return;
     try {
       await this.quickPostService.likeComment(this.post.id, commentId);
     } catch (error) {
@@ -269,6 +297,7 @@ export class CommentPanelComponent implements OnInit, OnDestroy {
   }
 
   async likeReply(commentId: string, replyId: string): Promise<void> {
+    if (!this.currentUser) return;
     try {
       await this.quickPostService.likeReply(this.post.id, commentId, replyId);
     } catch (error) {

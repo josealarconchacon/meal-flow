@@ -1,0 +1,163 @@
+<div class="comment-section">
+  <!-- Comment button with count -->
+  <button
+    class="comment-button"
+    (click)="toggleComments()"
+    aria-label="Show comments"
+  >
+    <span class="comment-icon">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H6l-2 2V4h16v12z"
+        />
+      </svg>
+    </span>
+    <span class="comment-count" *ngIf="comments.length > 0">
+      {{ comments.length }}
+      {{ comments.length === 1 ? "Comment" : "Comments" }}
+    </span>
+  </button>
+
+  <!-- Comments section -->
+  <div class="comments-container" *ngIf="showComments">
+    <!-- New comment input -->
+    <div class="new-comment-container">
+      <div class="user-avatar"></div>
+      <div class="comment-input-wrapper">
+        <input
+          type="text"
+          [(ngModel)]="newCommentText"
+          placeholder="What are your thoughts?"
+          (keyup.enter)="addComment()"
+          class="comment-input"
+        />
+      </div>
+    </div>
+
+    <!-- Comments list -->
+    <div class="comments-list">
+      <!-- Most relevant comments -->
+      <div class="comment-item" *ngFor="let comment of getVisibleComments()">
+        <div class="user-avatar"></div>
+        <div class="comment-content">
+          <div class="comment-bubble">
+            <div class="comment-author">{{ comment.author }}</div>
+            <div class="comment-text">{{ comment.content }}</div>
+          </div>
+
+          <div class="comment-actions">
+            <button
+              class="action-button"
+              [class.liked]="comment.isLiked"
+              (click)="toggleLike(comment)"
+            >
+              {{ comment.isLiked ? "Liked" : "Like" }}
+              <span *ngIf="comment.likes > 0">({{ comment.likes }})</span>
+            </button>
+            <button class="action-button" (click)="toggleReplyInput(comment)">
+              Reply
+            </button>
+            <span class="comment-time">{{
+              getTimeAgo(comment.timestamp)
+            }}</span>
+          </div>
+
+          <!-- Reply input -->
+          <div class="reply-input-container" *ngIf="comment.showReplyInput">
+            <div class="user-avatar"></div>
+            <div class="reply-input-wrapper">
+              <input
+                [id]="'reply-input-' + comment.id"
+                type="text"
+                [(ngModel)]="replyText[comment.id]"
+                placeholder="Write a reply..."
+                (keyup.enter)="addReply(comment)"
+                class="reply-input"
+              />
+              <div class="reply-actions">
+                <button
+                  class="cancel-button"
+                  (click)="toggleReplyInput(comment)"
+                >
+                  Cancel
+                </button>
+                <button
+                  class="submit-button"
+                  [disabled]="
+                    !replyText[comment.id] || !replyText[comment.id].trim()
+                  "
+                  (click)="addReply(comment)"
+                >
+                  Reply
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Replies section -->
+          <div class="replies-wrapper" *ngIf="isCommentExpanded(comment.id)">
+            <div
+              class="reply-item"
+              *ngFor="let reply of getVisibleReplies(comment)"
+            >
+              <div class="user-avatar"></div>
+              <div class="reply-content">
+                <div class="reply-bubble">
+                  <div class="reply-author">{{ reply.author }}</div>
+                  <div class="reply-text">{{ reply.content }}</div>
+                </div>
+                <div class="reply-actions">
+                  <button
+                    class="action-button"
+                    [class.liked]="reply.isLiked"
+                    (click)="toggleLikeReply(reply)"
+                  >
+                    {{ reply.isLiked ? "Liked" : "Like" }}
+                    <span *ngIf="reply.likes > 0">({{ reply.likes }})</span>
+                  </button>
+                  <span class="reply-time">{{
+                    getTimeAgo(reply.timestamp)
+                  }}</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- View more replies button -->
+            <button
+              *ngIf="getRemainingRepliesCount(comment) > 0"
+              class="view-more-button"
+              (click)="toggleAllReplies(comment.id)"
+            >
+              {{
+                expandedReplies.get(comment.id)
+                  ? "− Show fewer replies"
+                  : "+ " +
+                    getRemainingRepliesCount(comment) +
+                    " more " +
+                    (getRemainingRepliesCount(comment) === 1
+                      ? "reply"
+                      : "replies")
+              }}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- View more comments button -->
+      <button
+        *ngIf="getRemainingCommentsCount() > 0"
+        class="view-more-button"
+        (click)="toggleAllComments()"
+      >
+        {{
+          showAllComments
+            ? "− Show fewer comments"
+            : "+ " +
+              getRemainingCommentsCount() +
+              " more " +
+              (getRemainingCommentsCount() === 1 ? "comment" : "comments")
+        }}
+      </button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,52 @@
+<nav class="navbar">
+  <div class="navbar-brand">
+    <button class="mobile-menu" (click)="toggleMobileMenu()" *ngIf="isMobile">
+      <i class="fas fa-bars"></i>
+    </button>
+    <a [routerLink]="['/home']" class="app-name">MealFlow</a>
+  </div>
+
+  <div class="right-section">
+    <div
+      class="profile-section"
+      (click)="toggleDropdown()"
+      *ngIf="isAuthenticated"
+    >
+      <div class="profile-info">
+        <div
+          class="avatar"
+          [ngStyle]="{
+            'background-image': 'url(' + userProfile.avatarUrl + ')'
+          }"
+          *ngIf="userProfile.avatarUrl"
+        >
+          <span class="initials" *ngIf="!userProfile.avatarUrl">{{
+            getUserInitials()
+          }}</span>
+        </div>
+      </div>
+      <div class="dropdown-menu" [class.show]="isDropdownOpen">
+        <div class="user-details">
+          <p class="user-name">{{ userProfile.name }}</p>
+        </div>
+        <div class="dropdown-divider"></div>
+        <button (click)="goToProfile()">
+          <i class="fas fa-user"></i>
+          Profile
+        </button>
+        <button (click)="navigate('settings')">
+          <i class="fas fa-cog"></i>
+          Settings
+        </button>
+        <button (click)="logout()">
+          <i class="fas fa-sign-out-alt"></i>
+          Logout
+        </button>
+      </div>
+    </div>
+    <!-- Show sign in button when not authenticated -->
+    <div class="auth-buttons" *ngIf="!isAuthenticated">
+      <button (click)="navigate('auth')" class="sign-in-button">Sign In</button>
+    </div>
+  </div>
+</nav>

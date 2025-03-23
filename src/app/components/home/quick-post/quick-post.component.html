@@ -1,0 +1,208 @@
+<div class="quick-post-container">
+  <!-- Quick Post Input Section -->
+  <div class="quick-post-input">
+    <div class="input-header">
+      <img
+        [src]="(user$ | async)?.photoURL || '/assets/default-avatar.png'"
+        [alt]="(user$ | async)?.displayName + '\'s avatar'"
+        class="avatar-image"
+      />
+      <textarea
+        [(ngModel)]="newPostContent"
+        placeholder="What's on your mind?"
+        (click)="openPostModal()"
+        class="post-input"
+      ></textarea>
+    </div>
+    <div class="input-actions" *ngIf="newPostContent.trim()">
+      <button (click)="createPost()" class="post-button">Post</button>
+    </div>
+  </div>
+
+  <!-- Posts List -->
+  <div class="posts-container">
+    <!-- Error Message -->
+    <div *ngIf="error" class="alert alert-warning" role="alert">
+      {{ error }}
+      <button
+        *ngIf="error.includes('refresh')"
+        class="btn btn-link"
+        (click)="ngOnInit()"
+      >
+        Refresh Now
+      </button>
+    </div>
+
+    <!-- Loading Indicator -->
+    <div *ngIf="isLoading && !posts.length" class="text-center my-4">
+      <div class="spinner-border text-primary" role="status">
+        <span class="visually-hidden">Loading...</span>
+      </div>
+      <p class="mt-2 text-muted">Loading posts...</p>
+    </div>
+
+    <!-- Posts List -->
+    <app-post-list [posts]="posts"></app-post-list>
+
+    <!-- Load More -->
+    <div *ngIf="posts.length > 0" class="text-center mt-4 mb-5">
+      <button
+        class="btn btn-outline-primary"
+        (click)="loadMorePosts()"
+        [disabled]="isLoading"
+      >
+        <span *ngIf="!isLoading">Load More</span>
+        <span *ngIf="isLoading" class="d-flex align-items-center gap-2">
+          <div class="spinner-border spinner-border-sm" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+          Loading...
+        </span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div
+    class="modal"
+    [class.show]="showModal"
+    *ngIf="showModal"
+    (click)="closePostModal($event)"
+  >
+    <div class="modal-dialog modal-lg">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title">Create Post</h5>
+          <button
+            type="button"
+            class="btn-close"
+            (click)="closePostModal()"
+          ></button>
+        </div>
+        <div class="modal-body">
+          <textarea
+            [(ngModel)]="postContent"
+            placeholder="What's on your mind?"
+            class="form-control mb-3"
+            rows="4"
+          ></textarea>
+
+          <!-- Media Preview -->
+          <div
+            class="media-preview"
+            *ngIf="selectedImages.length > 0 || selectedVideo"
+          >
+            <!-- Images Preview -->
+            <div
+              class="images-grid"
+              *ngIf="selectedImages.length > 0"
+              [class.grid-1]="selectedImages.length === 1"
+              [class.grid-2]="selectedImages.length === 2"
+              [class.grid-3]="selectedImages.length === 3"
+            >
+              <div
+                class="position-relative"
+                *ngFor="let image of selectedImages; let i = index"
+              >
+                <img
+                  [src]="image | objectURL"
+                  class="preview-image"
+                  [alt]="'Selected image ' + (i + 1)"
+                />
+                <button
+                  class="btn btn-sm btn-danger remove-media"
+                  (click)="removeImage(i)"
+                >
+                  <i class="bi bi-x"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Video Preview -->
+            <div class="video-preview" *ngIf="selectedVideo">
+              <video
+                [src]="selectedVideo | objectURL"
+                controls
+                class="preview-video"
+              >
+                Your browser does not support the video tag.
+              </video>
+              <button
+                class="btn btn-sm btn-danger remove-media"
+                (click)="removeVideo()"
+              >
+                <i class="bi bi-x"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Upload Progress -->
+          <div class="upload-progress" *ngIf="uploadState.isUploading">
+            <div class="progress mb-2">
+              <div
+                class="progress-bar"
+                role="progressbar"
+                [style.width.%]="uploadState.progress"
+                [attr.aria-valuenow]="uploadState.progress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+              >
+                {{ uploadState.progress }}%
+              </div>
+            </div>
+          </div>
+
+          <!-- Upload Error -->
+          <div
+            class="alert alert-danger"
+            *ngIf="uploadState.error"
+            role="alert"
+          >
+            <pre class="mb-0">{{ uploadState.error }}</pre>
+          </div>
+
+          <!-- Media Upload Button -->
+          <div class="media-upload-section mt-3">
+            <button
+              class="btn btn-outline-primary"
+              (click)="modalFileInput.click()"
+              (keypress)="handleUploadKeyPress($event)"
+              [disabled]="uploadState.isUploading"
+            >
+              <i class="bi bi-image"></i> Add Photos/Video
+            </button>
+            <input
+              #modalFileInput
+              type="file"
+              (change)="onImagesSelected($event)"
+              accept="image/*,video/*"
+              multiple
+              hidden
+            />
+            <small class="text-muted d-block mt-1">
+              Max: 3 images ({{ maxImageSize / (1024 * 1024) }}MB each) or 1
+              video ({{ maxVideoSize / (1024 * 1024) }}MB)
+            </small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            (click)="closePostModal()"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            (click)="createPost()"
+            [disabled]="uploadState.isUploading"
+          >
+            Post
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

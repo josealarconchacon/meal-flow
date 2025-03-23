@@ -1,0 +1,79 @@
+<div class="reply-section">
+  <!-- Reply button -->
+  <button
+    class="reply-button"
+    (click)="toggleReplyInput()"
+    aria-label="Reply to comment"
+  >
+    <span class="reply-icon">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path
+          d="M20 2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4V4c0-1.1-.9-2-2-2zm-2 12H6v-2h12v2zm0-3H6V9h12v2zm0-3H6V6h12v2z"
+        />
+      </svg>
+    </span>
+    <span class="reply-text">Reply</span>
+    <span class="reply-count" *ngIf="replies.length > 0">
+      · {{ replies.length }}
+    </span>
+  </button>
+
+  <!-- Reply input -->
+  <div class="reply-container" *ngIf="showReplyInput">
+    <div class="reply-input-wrapper">
+      <div class="user-avatar"></div>
+      <div class="input-container">
+        <input
+          type="text"
+          [(ngModel)]="replyText"
+          placeholder="Write a reply..."
+          class="reply-input"
+          (keyup.enter)="addReply()"
+        />
+        <div class="reply-actions">
+          <button class="cancel-button" (click)="toggleReplyInput()">
+            Cancel
+          </button>
+          <button
+            class="submit-button"
+            [disabled]="!replyText.trim()"
+            (click)="addReply()"
+          >
+            Reply
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Replies list -->
+  <div class="replies-list" *ngIf="replies.length > 0">
+    <div class="reply-thread-line"></div>
+    <div class="reply-item" *ngFor="let reply of replies">
+      <div class="reply-content">
+        <div class="user-avatar"></div>
+        <div class="reply-bubble">
+          <div class="reply-author">{{ reply.author }}</div>
+          <div class="reply-text">{{ reply.content }}</div>
+
+          <div class="reply-meta">
+            <button
+              class="action-button"
+              [class.liked]="reply.isLiked"
+              (click)="toggleLike(reply)"
+            >
+              Like
+            </button>
+            <button class="action-button" (click)="toggleReplyInput()">
+              Reply
+            </button>
+            <span class="reply-time">{{ getTimeAgo(reply.timestamp) }}</span>
+            <span class="like-count" *ngIf="reply.likes > 0">
+              · {{ reply.likes }} {{ reply.likes === 1 ? "like" : "likes" }}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

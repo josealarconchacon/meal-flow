@@ -24,7 +24,10 @@ interface UserProfile {
       <div class="profile-header">
         <div class="profile-avatar">
           <img
-            [src]="userProfile.avatarUrl || 'assets/default-avatar.png'"
+            [src]="
+              userProfile.avatarUrl ||
+              'https://static-00.iconduck.com/assets.00/avatar-default-icon-2048x2048-h6w375ur.png'
+            "
             [alt]="userProfile.name"
           />
         </div>

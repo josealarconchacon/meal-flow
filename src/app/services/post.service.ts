@@ -1,4 +1,11 @@
-import { Injectable, inject, NgZone } from '@angular/core';
+import {
+  Injectable,
+  inject,
+  NgZone,
+  DestroyRef,
+  runInInjectionContext,
+  Injector,
+} from '@angular/core';
 import {
   Firestore,
   collection,
@@ -18,6 +25,7 @@ import {
   startAfter,
   collectionData,
   QueryConstraint,
+  increment,
 } from '@angular/fire/firestore';
 import {
   Storage,
@@ -34,10 +42,19 @@ import { AuthService } from './auth.service';
 import {
   Post,
   CreatePostDTO,
+  CreateCommentDTO,
   FIREBASE_COLLECTIONS,
   STORAGE_PATHS,
 } from '../components/home/quick-post/models/post.model';
-import { from, Observable, map, switchMap, firstValueFrom } from 'rxjs';
+import {
+  from,
+  Observable,
+  map,
+  switchMap,
+  firstValueFrom,
+  takeUntil,
+  fromEvent,
+} from 'rxjs';
 
 @Injectable({
   providedIn: 'root',
@@ -47,107 +64,208 @@ export class PostService {
   private readonly firestore = inject(Firestore);
   private readonly authService = inject(AuthService);
   private readonly ngZone = inject(NgZone);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
+  private readonly destroy$ = new Observable<void>((subscriber) => {
+    this.destroyRef.onDestroy(() => {
+      subscriber.next();
+      subscriber.complete();
+    });
+  });
 
   constructor() {}
 
   // Get posts as an Observable
   getPosts(limitCount: number = 10): Observable<Post[]> {
-    const postsRef = collection(this.firestore, FIREBASE_COLLECTIONS.POSTS);
+    return new Observable((subscriber) => {
+      runInInjectionContext(this.injector, () => {
+        const postsRef = collection(this.firestore, FIREBASE_COLLECTIONS.POSTS);
 
-    // Create query with proper ordering for consistent results
-    const q = query(
-      postsRef,
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'desc'),
-      orderBy('__name__'),
-      firestoreLimit(limitCount)
-    );
+        // Simplified query that only requires a basic index
+        const q = query(
+          postsRef,
+          where('status', '==', 'active'),
+          orderBy('createdAt', 'desc'),
+          firestoreLimit(limitCount)
+        );
 
-    // Add error handling and retry logic
-    return collectionData(q, { idField: 'id' }).pipe(
-      map((posts) => {
-        if (!posts) {
-          throw new Error('No posts found');
-        }
-        return posts as Post[];
-      })
-    );
+        // Add error handling and retry logic with caching
+        const subscription = collectionData(q, { idField: 'id' })
+          .pipe(
+            takeUntil(this.destroy$),
+            map((posts) => {
+              if (!posts) {
+                return [];
+              }
+              return posts as Post[];
+            })
+          )
+          .subscribe({
+            next: (posts) => {
+              subscriber.next(posts);
+            },
+            error: (error) => {
+              // Handle index creation gracefully
+              if (
+                error.code === 'failed-precondition' &&
+                error.message.includes('index')
+              ) {
+                console.warn(
+                  'Waiting for index to be created. This may take a few minutes.'
+                );
+                // Fall back to a simpler query while index is being built
+                const simpleQuery = query(
+                  postsRef,
+                  where('status', '==', 'active'),
+                  firestoreLimit(limitCount)
+                );
+
+                collectionData(simpleQuery, { idField: 'id' })
+                  .pipe(
+                    takeUntil(this.destroy$),
+                    map((posts) => posts as Post[])
+                  )
+                  .subscribe({
+                    next: (posts) => subscriber.next(posts),
+                    error: (fallbackError) => {
+                      console.error(
+                        'Error with fallback query:',
+                        fallbackError
+                      );
+                      subscriber.error(
+                        new Error(
+                          'Unable to load posts. Please try again later.'
+                        )
+                      );
+                    },
+                  });
+              } else {
+                console.error('Error fetching posts:', error);
+                subscriber.error(error);
+              }
+            },
+            complete: () => subscriber.complete(),
+          });
+
+        return () => {
+          subscription.unsubscribe();
+        };
+      });
+    });
   }
 
   // Get posts with pagination - optimized version
   getPostsWithPagination(lastPost?: Post): Observable<Post[]> {
-    const postsRef = collection(this.firestore, FIREBASE_COLLECTIONS.POSTS);
+    return new Observable((subscriber) => {
+      runInInjectionContext(this.injector, () => {
+        const postsRef = collection(this.firestore, FIREBASE_COLLECTIONS.POSTS);
 
-    // Base query parameters with consistent ordering
-    const queryConstraints: QueryConstraint[] = [
-      where('status', '==', 'active'),
-      orderBy('createdAt', 'desc'),
-    ];
+        // Simplified query constraints
+        const queryConstraints: QueryConstraint[] = [
+          where('status', '==', 'active'),
+          orderBy('createdAt', 'desc'),
+        ];
 
-    // Add cursor for pagination if we have a last post
-    if (lastPost) {
-      queryConstraints.push(startAfter(lastPost.createdAt));
-    }
-
-    // Add limit
-    queryConstraints.push(firestoreLimit(10));
-
-    const q = query(postsRef, ...queryConstraints);
-
-    return collectionData(q, { idField: 'id' }).pipe(
-      map((posts) => {
-        if (!posts) {
-          throw new Error('No posts found');
+        // Add cursor for pagination if we have a last post
+        if (lastPost) {
+          queryConstraints.push(startAfter(lastPost.createdAt));
         }
-        return posts as Post[];
-      })
-    );
+
+        // Add limit
+        queryConstraints.push(firestoreLimit(10));
+
+        const q = query(postsRef, ...queryConstraints);
+
+        const subscription = collectionData(q, { idField: 'id' })
+          .pipe(
+            takeUntil(this.destroy$),
+            map((posts) => {
+              if (!posts) {
+                return [];
+              }
+              return posts as Post[];
+            })
+          )
+          .subscribe({
+            next: (posts) => subscriber.next(posts),
+            error: (error) => {
+              // Check if we need to create an index
+              if (
+                error.code === 'failed-precondition' &&
+                error.message.includes('index')
+              ) {
+                console.error(
+                  'Please create the required index:',
+                  error.message
+                );
+                subscriber.error(
+                  new Error(
+                    'Database index setup required. Please contact the administrator.'
+                  )
+                );
+              } else {
+                console.error('Error fetching posts:', error);
+                subscriber.error(error);
+              }
+            },
+            complete: () => subscriber.complete(),
+          });
+
+        return () => {
+          subscription.unsubscribe();
+        };
+      });
+    });
   }
 
   // Create a new post
   async createPost(postData: CreatePostDTO): Promise<string> {
-    const user = await firstValueFrom(this.authService.user$);
-    if (!user) {
-      throw new Error('User must be authenticated to create a post');
-    }
-
-    try {
-      const postRef = collection(this.firestore, FIREBASE_COLLECTIONS.POSTS);
-      const timestamp = serverTimestamp();
-
-      // Clean up the post data to ensure no undefined values
-      const cleanPostData: Omit<Post, 'id'> = {
-        ...postData,
-        createdAt: timestamp as unknown as {
-          seconds: number;
-          nanoseconds: number;
-        },
-        stats: {
-          likes: 0,
-          comments: 0,
-        },
-        status: 'active',
-      };
-
-      // Remove undefined values from media object
-      if (cleanPostData.media) {
-        if (!cleanPostData.media.images?.length) {
-          delete cleanPostData.media.images;
-        }
-        if (!cleanPostData.media.video) {
-          delete cleanPostData.media.video;
-        }
-        if (Object.keys(cleanPostData.media).length === 0) {
-          delete (cleanPostData as any).media;
-        }
+    return this.ngZone.run(async () => {
+      const user = await firstValueFrom(this.authService.user$);
+      if (!user) {
+        throw new Error('User must be authenticated to create a post');
       }
 
-      const docRef = await addDoc(postRef, cleanPostData);
-      return docRef.id;
-    } catch (error) {
-      console.error('Error creating post:', error);
-      throw error;
-    }
+      try {
+        const postRef = collection(this.firestore, FIREBASE_COLLECTIONS.POSTS);
+
+        // Clean up the post data to ensure no undefined values
+        const cleanPostData: Omit<Post, 'id'> = {
+          ...postData,
+          createdAt: {
+            seconds: Math.floor(Date.now() / 1000),
+            nanoseconds: (Date.now() % 1000) * 1000000,
+          },
+          stats: {
+            likes: 0,
+            comments: 0,
+          },
+          status: 'active',
+        };
+
+        // Remove undefined values from media object
+        if (cleanPostData.media) {
+          if (!cleanPostData.media.images?.length) {
+            delete cleanPostData.media.images;
+          }
+          if (!cleanPostData.media.video) {
+            delete cleanPostData.media.video;
+          }
+          if (Object.keys(cleanPostData.media).length === 0) {
+            delete (cleanPostData as any).media;
+          }
+        }
+
+        const docRef = await addDoc(postRef, {
+          ...cleanPostData,
+          createdAt: serverTimestamp(), // Use serverTimestamp when saving to Firestore
+        });
+        return docRef.id;
+      } catch (error) {
+        console.error('Error creating post:', error);
+        throw error;
+      }
+    });
   }
 
   // Upload media files
@@ -207,160 +325,197 @@ export class PostService {
 
   // Handle post likes
   async toggleLike(postId: string, userId: string): Promise<void> {
-    try {
-      const likeRef = doc(
-        this.firestore,
-        FIREBASE_COLLECTIONS.POSTS,
-        postId,
-        FIREBASE_COLLECTIONS.LIKES,
-        userId
-      );
-      const likeDoc = await getDocs(
-        query(
-          collection(
-            this.firestore,
-            `${FIREBASE_COLLECTIONS.POSTS}/${postId}/${FIREBASE_COLLECTIONS.LIKES}`
-          )
-        )
-      );
-
-      const postRef = doc(this.firestore, FIREBASE_COLLECTIONS.POSTS, postId);
-
-      if (likeDoc.empty) {
-        await addDoc(
-          collection(
-            this.firestore,
-            `${FIREBASE_COLLECTIONS.POSTS}/${postId}/${FIREBASE_COLLECTIONS.LIKES}`
-          ),
-          {
-            userId,
-            createdAt: serverTimestamp(),
-          }
+    return this.ngZone.run(async () => {
+      try {
+        const likeRef = doc(
+          this.firestore,
+          FIREBASE_COLLECTIONS.POSTS,
+          postId,
+          FIREBASE_COLLECTIONS.LIKES,
+          userId
         );
-        await updateDoc(postRef, {
-          'stats.likes': (likeDoc.size || 0) + 1,
-        });
-      } else {
-        await deleteDoc(likeRef);
-        await updateDoc(postRef, {
-          'stats.likes': Math.max((likeDoc.size || 0) - 1, 0),
-        });
-      }
-    } catch (error) {
-      console.error('Error toggling like:', error);
-      throw error;
-    }
-  }
+        const likeDoc = await getDocs(
+          query(
+            collection(
+              this.firestore,
+              `${FIREBASE_COLLECTIONS.POSTS}/${postId}/${FIREBASE_COLLECTIONS.LIKES}`
+            )
+          )
+        );
 
-  async uploadImage(file: File): Promise<{ url: string; path: string }> {
-    const user = await firstValueFrom(this.authService.user$);
-    if (!user) {
-      throw new Error('User must be authenticated to upload images');
-    }
+        const postRef = doc(this.firestore, FIREBASE_COLLECTIONS.POSTS, postId);
 
-    if (!file.type.startsWith('image/')) {
-      throw new Error('Invalid file type. Only images are allowed.');
-    }
-
-    const timestamp = Date.now();
-    const path = `${STORAGE_PATHS.POST_IMAGES}/${user.uid}/${timestamp}_${file.name}`;
-    const storageRef = ref(this.storage, path);
-
-    try {
-      // Run the upload inside NgZone to ensure proper change detection
-      const uploadTask = await this.ngZone.runOutsideAngular(() => {
-        const task = uploadBytesResumable(storageRef, file);
-        return new Promise<UploadTaskSnapshot>((resolve, reject) => {
-          task.on(
-            'state_changed',
-            (snapshot) => {
-              // Progress updates are handled in the component
-            },
-            (error) => {
-              console.error('Upload error:', error);
-              reject(error);
-            },
-            async () => {
-              try {
-                const snapshot = await task.snapshot;
-                resolve(snapshot);
-              } catch (error) {
-                reject(error);
-              }
+        if (likeDoc.empty) {
+          await addDoc(
+            collection(
+              this.firestore,
+              `${FIREBASE_COLLECTIONS.POSTS}/${postId}/${FIREBASE_COLLECTIONS.LIKES}`
+            ),
+            {
+              userId,
+              createdAt: serverTimestamp(),
             }
           );
-        });
-      });
-
-      // Get the download URL
-      const url = await getDownloadURL(uploadTask.ref);
-
-      return { url, path };
-    } catch (error: any) {
-      console.error('Error uploading image:', error);
-      if (error.code === 'storage/unauthorized') {
-        throw new Error(
-          'You do not have permission to upload images. Please check your authentication status.'
-        );
+          await updateDoc(postRef, {
+            'stats.likes': (likeDoc.size || 0) + 1,
+          });
+        } else {
+          await deleteDoc(likeRef);
+          await updateDoc(postRef, {
+            'stats.likes': Math.max((likeDoc.size || 0) - 1, 0),
+          });
+        }
+      } catch (error) {
+        console.error('Error toggling like:', error);
+        throw error;
       }
-      throw new Error('Failed to upload image to storage. Please try again.');
-    }
+    });
   }
 
+  // Upload image with progress tracking
+  async uploadImage(file: File): Promise<{ url: string; path: string }> {
+    return this.ngZone.run(async () => {
+      const user = await firstValueFrom(this.authService.user$);
+      if (!user) {
+        throw new Error('User must be authenticated to upload images');
+      }
+
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Invalid file type. Only images are allowed.');
+      }
+
+      const timestamp = Date.now();
+      const path = `${STORAGE_PATHS.POST_IMAGES}/${user.uid}/${timestamp}_${file.name}`;
+      const storageRef = ref(this.storage, path);
+
+      try {
+        const uploadTask = await uploadBytesResumable(storageRef, file);
+        const url = await getDownloadURL(uploadTask.ref);
+        return { url, path };
+      } catch (error: any) {
+        console.error('Error uploading image:', error);
+        if (error.code === 'storage/unauthorized') {
+          throw new Error(
+            'You do not have permission to upload images. Please check your authentication status.'
+          );
+        }
+        throw new Error('Failed to upload image to storage. Please try again.');
+      }
+    });
+  }
+
+  // Upload video with progress tracking
   async uploadVideo(
     file: File
   ): Promise<{ url: string; path: string; thumbnail?: string }> {
-    const user = await firstValueFrom(this.authService.user$);
-    if (!user) {
-      throw new Error('User must be authenticated to upload videos');
-    }
-
-    if (!file.type.startsWith('video/')) {
-      throw new Error('Invalid file type. Only videos are allowed.');
-    }
-
-    const timestamp = Date.now();
-    const path = `${STORAGE_PATHS.POST_VIDEOS}/${user.uid}/${timestamp}_${file.name}`;
-    const storageRef = ref(this.storage, path);
-
-    try {
-      // Run the upload inside NgZone to ensure proper change detection
-      const uploadTask = await this.ngZone.runOutsideAngular(() => {
-        const task = uploadBytesResumable(storageRef, file);
-        return new Promise<UploadTaskSnapshot>((resolve, reject) => {
-          task.on(
-            'state_changed',
-            (snapshot) => {
-              // Progress updates are handled in the component
-            },
-            (error) => {
-              console.error('Upload error:', error);
-              reject(error);
-            },
-            async () => {
-              try {
-                const snapshot = await task.snapshot;
-                resolve(snapshot);
-              } catch (error) {
-                reject(error);
-              }
-            }
-          );
-        });
-      });
-
-      // Get the download URL
-      const url = await getDownloadURL(uploadTask.ref);
-
-      return { url, path };
-    } catch (error: any) {
-      console.error('Error uploading video:', error);
-      if (error.code === 'storage/unauthorized') {
-        throw new Error(
-          'You do not have permission to upload videos. Please check your authentication status.'
-        );
+    return this.ngZone.run(async () => {
+      const user = await firstValueFrom(this.authService.user$);
+      if (!user) {
+        throw new Error('User must be authenticated to upload videos');
       }
-      throw new Error('Failed to upload video to storage. Please try again.');
-    }
+
+      if (!file.type.startsWith('video/')) {
+        throw new Error('Invalid file type. Only videos are allowed.');
+      }
+
+      const timestamp = Date.now();
+      const path = `${STORAGE_PATHS.POST_VIDEOS}/${user.uid}/${timestamp}_${file.name}`;
+      const storageRef = ref(this.storage, path);
+
+      try {
+        const uploadTask = await uploadBytesResumable(storageRef, file);
+        const url = await getDownloadURL(uploadTask.ref);
+        return { url, path };
+      } catch (error: any) {
+        console.error('Error uploading video:', error);
+        if (error.code === 'storage/unauthorized') {
+          throw new Error(
+            'You do not have permission to upload videos. Please check your authentication status.'
+          );
+        }
+        throw new Error('Failed to upload video to storage. Please try again.');
+      }
+    });
+  }
+
+  // Add comment to a post
+  async addComment(
+    postId: string,
+    commentData: CreateCommentDTO
+  ): Promise<string> {
+    return this.ngZone.run(async () => {
+      try {
+        const postRef = doc(this.firestore, FIREBASE_COLLECTIONS.POSTS, postId);
+        const commentsRef = collection(postRef, 'comments');
+
+        const commentDoc = await addDoc(commentsRef, {
+          ...commentData,
+          createdAt: serverTimestamp(),
+        });
+
+        // Update the comments count
+        await updateDoc(postRef, {
+          'stats.comments': increment(1),
+        });
+
+        return commentDoc.id;
+      } catch (error) {
+        console.error('Error adding comment:', error);
+        throw error;
+      }
+    });
+  }
+
+  // Get comments for a post
+  async getComments(
+    postId: string,
+    limit: number = 10
+  ): Promise<Post['comments']> {
+    return this.ngZone.run(async () => {
+      try {
+        const commentsRef = collection(
+          this.firestore,
+          FIREBASE_COLLECTIONS.POSTS,
+          postId,
+          'comments'
+        );
+
+        const q = query(
+          commentsRef,
+          orderBy('createdAt', 'desc'),
+          firestoreLimit(limit)
+        );
+
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...doc.data(),
+          createdAt: doc.data()['createdAt'],
+        })) as Post['comments'];
+      } catch (error) {
+        console.error('Error getting comments:', error);
+        throw error;
+      }
+    });
+  }
+
+  // Delete a comment
+  async deleteComment(postId: string, commentId: string): Promise<void> {
+    return this.ngZone.run(async () => {
+      try {
+        const postRef = doc(this.firestore, FIREBASE_COLLECTIONS.POSTS, postId);
+        const commentRef = doc(postRef, 'comments', commentId);
+
+        await deleteDoc(commentRef);
+
+        // Update the comments count
+        await updateDoc(postRef, {
+          'stats.comments': increment(-1),
+        });
+      } catch (error) {
+        console.error('Error deleting comment:', error);
+        throw error;
+      }
+    });
   }
 }

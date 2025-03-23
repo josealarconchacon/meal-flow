@@ -1,11 +1,23 @@
-import { Component, OnInit, OnDestroy } from '@angular/core';
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  DestroyRef,
+  inject,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { MatDialog } from '@angular/material/dialog';
 import { AuthModalComponent } from '../../auth-modal/auth-modal.component';
 import { AuthService } from '../../../services/auth.service';
 import { PostService } from '../../../services/post.service';
-import { firstValueFrom, Subscription } from 'rxjs';
+import {
+  firstValueFrom,
+  Subscription,
+  BehaviorSubject,
+  takeUntil,
+  Subject,
+} from 'rxjs';
 import { PostListComponent } from './post-list/post-list.component';
 import { Post, CreatePostDTO } from './models/post.model';
 import { MediaUploadState } from './models/media-upload-state.interface';
@@ -17,7 +29,7 @@ import { ObjectURLPipe } from '../../../pipes/object-url.pipe';
   templateUrl: './quick-post.component.html',
   styleUrls: ['./quick-post.component.css'],
   standalone: true,
-  host: { ngSkipHydration: '' },
+  host: { ngSkipHydration: 'true' },
   imports: [CommonModule, FormsModule, PostListComponent, ObjectURLPipe],
 })
 export class QuickPostComponent implements OnInit, OnDestroy {
@@ -35,9 +47,6 @@ export class QuickPostComponent implements OnInit, OnDestroy {
 
   // User data
   currentUser: any = null;
-  private userSubscription?: Subscription;
-  private postsSubscription?: Subscription;
-  user$;
   error: string | null = null;
   isLoading = false;
 
@@ -47,86 +56,87 @@ export class QuickPostComponent implements OnInit, OnDestroy {
   readonly allowedImageTypes = FILE_UPLOAD_CONSTANTS.ALLOWED_IMAGE_TYPES;
   readonly allowedVideoTypes = FILE_UPLOAD_CONSTANTS.ALLOWED_VIDEO_TYPES;
 
+  // State management with improved performance
+  private readonly destroy$ = new Subject<void>();
+  private readonly postsSubject = new BehaviorSubject<Post[]>([]);
+  posts$ = this.postsSubject.asObservable();
+  user$;
+
   constructor(
     private dialog: MatDialog,
     private authService: AuthService,
-    private postService: PostService
+    private postService: PostService,
+    private destroyRef: DestroyRef
   ) {
     this.user$ = this.authService.user$;
+    this.destroyRef.onDestroy(() => {
+      this.destroy$.next();
+      this.destroy$.complete();
+      this.postsSubject.complete();
+    });
   }
 
   ngOnInit(): void {
-    this.userSubscription = this.authService.user$.subscribe((user) => {
-      this.currentUser = user;
+    // Subscribe to user changes with optimized subscription
+    this.authService.user$.pipe(takeUntil(this.destroy$)).subscribe((user) => {
+      if (this.currentUser?.uid !== user?.uid) {
+        this.currentUser = user;
+      }
     });
 
-    // Subscribe to posts with proper error handling and loading state
-    this.isLoading = true;
-    this.postsSubscription = this.postService.getPosts().subscribe({
-      next: (posts) => {
-        this.posts = posts;
-        this.error = null;
-        this.isLoading = false;
-      },
-      error: (error) => {
-        console.error('Error loading posts:', error);
-        this.isLoading = false;
-
-        // Handle specific error cases
-        if (
-          error.code === 'failed-precondition' &&
-          error.message.includes('requires an index')
-        ) {
-          this.error =
-            'Setting up the database. Please wait a moment and refresh the page.';
-        } else if (error.code === 'permission-denied') {
-          this.error = 'You do not have permission to view these posts.';
-        } else {
-          this.error = 'Failed to load posts. Please try again later.';
-        }
-      },
-    });
+    // Load initial posts
+    this.loadPosts();
   }
 
   ngOnDestroy(): void {
-    if (this.userSubscription) {
-      this.userSubscription.unsubscribe();
-    }
-    if (this.postsSubscription) {
-      this.postsSubscription.unsubscribe();
+    this.destroy$.next();
+    this.destroy$.complete();
+    this.postsSubject.complete();
+  }
+
+  async loadPosts(): Promise<void> {
+    if (this.isLoading) return;
+
+    try {
+      this.isLoading = true;
+      this.error = null;
+
+      // Optimized post loading with error handling
+      this.postService
+        .getPosts()
+        .pipe(takeUntil(this.destroy$))
+        .subscribe({
+          next: (posts) => {
+            if (JSON.stringify(this.posts) !== JSON.stringify(posts)) {
+              this.posts = posts;
+              this.postsSubject.next(posts);
+            }
+            this.isLoading = false;
+          },
+          error: (error: any) => {
+            console.error('Error loading posts:', error);
+            this.handleLoadError(error);
+            this.isLoading = false;
+          },
+        });
+    } catch (error: any) {
+      console.error('Error in loadPosts:', error);
+      this.error = 'An unexpected error occurred. Please try again later.';
+      this.isLoading = false;
     }
   }
 
-  // Load more posts for pagination with error handling
-  loadMorePosts(): void {
-    if (this.posts.length > 0 && !this.isLoading) {
-      const lastPost = this.posts[this.posts.length - 1];
-      this.isLoading = true;
-
-      this.postService.getPostsWithPagination(lastPost).subscribe({
-        next: (newPosts) => {
-          this.posts = [...this.posts, ...newPosts];
-          this.error = null;
-          this.isLoading = false;
-        },
-        error: (error) => {
-          console.error('Error loading more posts:', error);
-          this.isLoading = false;
-
-          // Handle specific error cases
-          if (
-            error.code === 'failed-precondition' &&
-            error.message.includes('requires an index')
-          ) {
-            this.error =
-              'Setting up the database. Please wait a moment and refresh the page.';
-          } else if (error.code === 'permission-denied') {
-            this.error = 'You do not have permission to view these posts.';
-          } else {
-            this.error = 'Failed to load more posts. Please try again.';
-          }
-        },
-      });
+  private handleLoadError(error: any): void {
+    if (
+      error.code === 'failed-precondition' &&
+      error.message.includes('requires an index')
+    ) {
+      this.error =
+        'Setting up the database. Please wait a moment and refresh the page.';
+    } else if (error.code === 'permission-denied') {
+      this.error = 'You do not have permission to view these posts.';
+    } else {
+      this.error = 'Failed to load posts. Please try again later.';
     }
   }
 
@@ -139,7 +149,12 @@ export class QuickPostComponent implements OnInit, OnDestroy {
   }
 
   async openPostModal(): Promise<void> {
-    if (!(await this.checkAuth())) return;
+    const user = await firstValueFrom(this.user$);
+    if (!user) {
+      this.openAuthModal();
+      return;
+    }
+
     this.showModal = true;
     document.body.style.overflow = 'hidden';
   }
@@ -147,17 +162,19 @@ export class QuickPostComponent implements OnInit, OnDestroy {
   closePostModal(event?: Event): void {
     if (event) {
       const target = event.target as HTMLElement;
-      if (!target.closest('.modal-content') || target.closest('.btn-close')) {
-        this.showModal = false;
+      if (
+        target.classList.contains('modal-overlay') ||
+        target.closest('.btn-close')
+      ) {
         this.resetModal();
       }
     } else {
-      this.showModal = false;
       this.resetModal();
     }
   }
 
   private resetModal(): void {
+    this.showModal = false;
     this.postContent = '';
     this.selectedImages = [];
     this.selectedVideo = null;
@@ -296,7 +313,9 @@ export class QuickPostComponent implements OnInit, OnDestroy {
         author: {
           uid: this.currentUser.uid,
           displayName: this.currentUser.displayName || 'Anonymous',
-          photoURL: this.currentUser.photoURL || '/assets/default-avatar.png',
+          photoURL:
+            this.currentUser.photoURL ||
+            'https://static-00.iconduck.com/assets.00/avatar-default-icon-2048x2048-h6w375ur.png',
         },
       };
 

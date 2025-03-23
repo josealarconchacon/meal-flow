@@ -2,94 +2,112 @@
   margin-top: 24px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 1rem;
 }
 
-.post-item {
-  background: #fff;
-  border-radius: 16px;
-  padding: 20px;
-  transition: all 0.2s ease;
-}
-
-.post-item:hover {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+.post {
+  background: white;
+  border-radius: 0.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
 }
 
 .post-header {
   display: flex;
   align-items: center;
-  margin-bottom: 16px;
-  padding-bottom: 8px;
+  justify-content: space-between;
+  margin-bottom: 1rem;
 }
 
-.post-meta {
+.post-author {
   display: flex;
-  flex-direction: column;
-}
-
-.user-name {
-  color: #1a1a1a;
-  font-size: 0.95rem;
-  margin-bottom: 2px;
-}
-
-.post-timestamp {
-  font-size: 0.8rem;
-  color: #65676b;
+  align-items: center;
+  gap: 0.75rem;
 }
 
 .avatar-image {
   width: 40px;
   height: 40px;
+  border-radius: 50%;
   object-fit: cover;
-  border: 2px solid #e4e6eb;
-  transition: all 0.2s ease;
 }
 
-.avatar-image:hover {
-  border-color: #1976d2;
-  transform: scale(1.05);
+.author-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.author-name {
+  font-weight: 500;
+  color: var(--bs-gray-900);
+}
+
+.post-timestamp {
+  font-size: 0.75rem;
+  color: var(--bs-gray-600);
 }
 
 .post-content {
-  font-size: 0.95rem;
-  line-height: 1.5;
-  color: #1a1a1a;
-  margin-bottom: 16px;
+  margin-bottom: 1rem;
+}
+
+.post-text {
+  margin-bottom: 1rem;
   white-space: pre-wrap;
-  word-break: break-word;
+}
+
+.post-media {
+  margin-top: 1rem;
 }
 
 .images-grid {
   display: grid;
-  gap: 8px;
-  margin-top: 8px;
-  margin-bottom: 16px;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  overflow: hidden;
 }
 
-.images-grid.grid-1 {
+.grid-1 {
   grid-template-columns: 1fr;
 }
 
-.images-grid.grid-2 {
+.grid-2 {
   grid-template-columns: repeat(2, 1fr);
 }
 
-.images-grid.grid-3 {
+.grid-3 {
   grid-template-columns: repeat(3, 1fr);
 }
 
-.images-grid img {
+.image-container {
+  aspect-ratio: 1;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.post-image {
   width: 100%;
-  height: 200px;
+  height: 100%;
   object-fit: cover;
-  border-radius: 8px;
+  transition: transform 0.2s ease-in-out;
+}
+
+.image-container:hover .post-image {
+  transform: scale(1.05);
+}
+
+.video-container {
+  position: relative;
+  width: 100%;
+  border-radius: 0.5rem;
+  overflow: hidden;
 }
 
 .post-video {
+  width: 100%;
   max-height: 400px;
-  margin-bottom: 16px;
+  object-fit: contain;
+  background: black;
 }
 
 .post-interactions {

@@ -101,7 +101,8 @@ interface UserSettings {
                 <div class="profile-picture-container">
                   <img
                     [src]="
-                      userSettings?.photoURL || 'assets/default-avatar.png'
+                      userSettings?.photoURL ||
+                      'https://static-00.iconduck.com/assets.00/avatar-default-icon-2048x2048-h6w375ur.png'
                     "
                     alt="Profile picture"
                     class="profile-picture"

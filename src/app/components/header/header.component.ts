@@ -33,7 +33,8 @@ export class HeaderComponent implements OnInit, OnDestroy {
   userProfile: UserProfile = {
     name: '',
     email: '',
-    avatarUrl: 'assets/default-avatar.png',
+    avatarUrl:
+      'https://static-00.iconduck.com/assets.00/avatar-default-icon-2048x2048-h6w375ur.png',
   };
   isAuthenticated = false;
   private authSubscription?: Subscription;

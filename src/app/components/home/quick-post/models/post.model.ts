@@ -10,6 +10,45 @@ export interface PostMedia {
   thumbnailUrl?: string;
 }
 
+export interface Reply {
+  id: string;
+  content: string;
+  author: {
+    uid: string;
+    displayName: string;
+    photoURL: string;
+  };
+  createdAt: {
+    seconds: number;
+    nanoseconds: number;
+  };
+}
+
+export interface Comment {
+  id: string;
+  content: string;
+  author: {
+    uid: string;
+    displayName: string;
+    photoURL: string;
+  };
+  createdAt: {
+    seconds: number;
+    nanoseconds: number;
+  };
+  replies?: Reply[];
+  showReplyForm?: boolean;
+  replyContent?: string;
+  hasMoreReplies?: boolean;
+  totalReplies?: number;
+}
+
+export interface CommentsResponse {
+  comments: Comment[];
+  totalComments: number;
+  hasMore: boolean;
+}
+
 export interface Post {
   id: string;
   content: string;
@@ -39,19 +78,7 @@ export interface Post {
     likes: number;
     comments: number;
   };
-  comments?: Array<{
-    id: string;
-    content: string;
-    author: {
-      uid: string;
-      displayName: string;
-      photoURL: string;
-    };
-    createdAt: {
-      seconds: number;
-      nanoseconds: number;
-    };
-  }>;
+  comments?: Comment[];
   likes?: Array<{
     userId: string;
     createdAt: {
@@ -65,6 +92,7 @@ export interface Post {
   };
   status: 'active' | 'deleted' | 'hidden';
   tags?: string[];
+  showComments?: boolean;
 }
 
 // Helper type for creating a new post
@@ -108,6 +136,7 @@ export const FIREBASE_COLLECTIONS = {
   COMMENTS: 'comments',
   LIKES: 'likes',
   POST_MEDIA: 'post-media',
+  REPLIES: 'replies',
 } as const;
 
 // Firebase Storage structure

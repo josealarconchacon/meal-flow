@@ -41,3 +41,9 @@ testem.log
 .DS_Store
 Thumbs.db
 .qodo
+
+# Environment and Firebase Rules
+/src/environments/environment.ts
+/src/environments/environment.development.ts
+/meal-flow/firebase.storage.rules
+/meal-flow/firestore.rules

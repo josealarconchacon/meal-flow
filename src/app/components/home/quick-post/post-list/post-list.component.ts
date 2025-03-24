@@ -1,61 +1,103 @@
 import { Component, Input } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { Post } from '../models/post.model';
-import { MatDialog } from '@angular/material/dialog';
+import { PostInteractionsComponent } from '../post-interactions/post-interactions.component';
 
 @Component({
   selector: 'app-post-list',
-  templateUrl: './post-list.component.html',
-  styleUrls: ['./post-list.component.css'],
   standalone: true,
-  imports: [CommonModule],
-  providers: [DatePipe],
+  imports: [CommonModule, PostInteractionsComponent],
+  template: `
+    <div
+      class="posts-list"
+      *ngIf="posts.length > 0"
+      role="feed"
+      aria-label="Posts"
+    >
+      <article class="post-item" *ngFor="let post of posts" role="article">
+        <div class="post-header">
+          <img
+            [src]="post.author.photoURL || '/assets/default-avatar.png'"
+            [alt]="post.author.displayName + '\\'s avatar'"
+            class="avatar-image rounded-circle me-3"
+          />
+          <div class="post-meta">
+            <div class="user-name fw-bold">{{ post.author.displayName }}</div>
+            <div class="post-timestamp text-muted small" aria-label="Post time">
+              {{ getFormattedDate(post.createdAt) }}
+            </div>
+          </div>
+        </div>
+
+        <p class="post-content">{{ post.content }}</p>
+
+        <!-- Images grid -->
+        <ng-container *ngIf="hasImages(post)">
+          <div
+            class="images-grid"
+            [ngClass]="{
+              'grid-1': getImagesLength(post) === 1,
+              'grid-2': getImagesLength(post) === 2,
+              'grid-3': getImagesLength(post) === 3
+            }"
+          >
+            <div
+              class="position-relative"
+              *ngFor="let image of post.media!.images"
+            >
+              <img
+                [src]="image.url"
+                class="post-image"
+                [alt]="'Post image by ' + post.author.displayName"
+                loading="lazy"
+              />
+            </div>
+          </div>
+        </ng-container>
+
+        <!-- Video -->
+        <ng-container *ngIf="hasVideo(post)">
+          <video
+            [src]="getVideoUrl(post)"
+            controls
+            class="post-video w-100 rounded"
+            [attr.aria-label]="'Video posted by ' + post.author.displayName"
+            preload="metadata"
+          >
+            Your browser does not support the video tag.
+          </video>
+        </ng-container>
+
+        <!-- Post Interactions -->
+        <app-post-interactions [post]="post"></app-post-interactions>
+      </article>
+    </div>
+
+    <div class="no-posts" *ngIf="posts.length === 0">
+      <p>No posts yet. Be the first to share something!</p>
+    </div>
+  `,
+  styleUrls: ['./post-list.component.css'],
 })
 export class PostListComponent {
   @Input() posts: Post[] = [];
 
-  constructor(private dialog: MatDialog) {}
+  getFormattedDate(timestamp: any): string {
+    if (!timestamp) return '';
 
-  getFormattedDate(timestamp: {
-    seconds: number;
-    nanoseconds: number;
-  }): string {
-    if (!timestamp || !timestamp.seconds) {
-      return 'Just now';
-    }
-
-    const date = new Date(timestamp.seconds * 1000);
+    const date = timestamp.toDate();
     const now = new Date();
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
 
-    // If less than a minute ago
-    if (diffInSeconds < 60) {
-      return 'Just now';
-    }
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h`;
+    if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d`;
 
-    // If less than an hour ago
-    if (diffInSeconds < 3600) {
-      const minutes = Math.floor(diffInSeconds / 60);
-      return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'} ago`;
-    }
-
-    // If less than a day ago
-    if (diffInSeconds < 86400) {
-      const hours = Math.floor(diffInSeconds / 3600);
-      return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
-    }
-
-    // If less than a week ago
-    if (diffInSeconds < 604800) {
-      const days = Math.floor(diffInSeconds / 86400);
-      return `${days} ${days === 1 ? 'day' : 'days'} ago`;
-    }
-
-    // For older dates, show the full date
     return date.toLocaleDateString('en-US', {
-      weekday: 'long',
+      weekday: 'short',
       year: 'numeric',
-      month: 'long',
+      month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
@@ -77,18 +119,5 @@ export class PostListComponent {
 
   getVideoUrl(post: Post): string | null {
     return post.media?.video?.url || null;
-  }
-
-  getLikesCount(post: Post): number {
-    return post.stats?.likes || 0;
-  }
-
-  getCommentsCount(post: Post): number {
-    return post.stats?.comments || 0;
-  }
-
-  openMediaViewer(media: { url: string; type: string }) {
-    // TODO: Implement media viewer dialog
-    console.log('Opening media viewer:', media);
   }
 }

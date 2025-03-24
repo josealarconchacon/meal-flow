@@ -26,6 +26,10 @@ import {
   collectionData,
   QueryConstraint,
   increment,
+  runTransaction,
+  getDoc,
+  setDoc,
+  getCountFromServer,
 } from '@angular/fire/firestore';
 import {
   Storage,
@@ -45,6 +49,8 @@ import {
   CreateCommentDTO,
   FIREBASE_COLLECTIONS,
   STORAGE_PATHS,
+  Comment,
+  CommentsResponse,
 } from '../components/home/quick-post/models/post.model';
 import {
   from,
@@ -439,64 +445,78 @@ export class PostService {
   }
 
   // Add comment to a post
-  async addComment(
-    postId: string,
-    commentData: CreateCommentDTO
-  ): Promise<string> {
-    return this.ngZone.run(async () => {
-      try {
-        const postRef = doc(this.firestore, FIREBASE_COLLECTIONS.POSTS, postId);
-        const commentsRef = collection(postRef, 'comments');
+  async addComment(postId: string, commentData: any): Promise<any> {
+    const postRef = doc(this.firestore, 'posts', postId);
+    const commentsRef = collection(this.firestore, `posts/${postId}/comments`);
 
-        const commentDoc = await addDoc(commentsRef, {
-          ...commentData,
-          createdAt: serverTimestamp(),
-        });
-
-        // Update the comments count
-        await updateDoc(postRef, {
-          'stats.comments': increment(1),
-        });
-
-        return commentDoc.id;
-      } catch (error) {
-        console.error('Error adding comment:', error);
-        throw error;
+    await runTransaction(this.firestore, async (transaction) => {
+      const postDoc = await transaction.get(postRef);
+      if (!postDoc.exists()) {
+        throw new Error('Post does not exist!');
       }
+
+      const postData = postDoc.data();
+      const currentComments = postData?.['stats']?.['comments'] || 0;
+
+      const commentRef = doc(commentsRef);
+      transaction.set(commentRef, {
+        ...commentData,
+        id: commentRef.id,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      transaction.update(postRef, {
+        'stats.comments': currentComments + 1,
+      });
     });
   }
 
   // Get comments for a post
   async getComments(
     postId: string,
-    limit: number = 10
-  ): Promise<Post['comments']> {
-    return this.ngZone.run(async () => {
-      try {
-        const commentsRef = collection(
-          this.firestore,
-          FIREBASE_COLLECTIONS.POSTS,
-          postId,
-          'comments'
-        );
+    commentLimit: number = 3,
+    lastComment?: Comment
+  ): Promise<CommentsResponse> {
+    const commentsRef = collection(this.firestore, `posts/${postId}/comments`);
+    let q = query(commentsRef, orderBy('createdAt', 'desc'));
 
-        const q = query(
-          commentsRef,
-          orderBy('createdAt', 'desc'),
-          firestoreLimit(limit)
-        );
+    if (commentLimit > 0) {
+      q = query(q, firestoreLimit(commentLimit));
+    }
 
-        const snapshot = await getDocs(q);
-        return snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-          createdAt: doc.data()['createdAt'],
-        })) as Post['comments'];
-      } catch (error) {
-        console.error('Error getting comments:', error);
-        throw error;
-      }
-    });
+    if (lastComment) {
+      q = query(q, startAfter(lastComment));
+    }
+
+    const snapshot = await getDocs(q);
+    const comments = snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Comment[];
+
+    // Get total comment count
+    const totalSnapshot = await getCountFromServer(commentsRef);
+    const totalComments = totalSnapshot.data().count;
+
+    // Get replies for each comment
+    for (const comment of comments) {
+      comment.replies = await this.getReplies(postId, comment.id, 2); // Show only 2 replies initially
+      const repliesRef = collection(
+        this.firestore,
+        `posts/${postId}/comments/${comment.id}/replies`
+      );
+      const totalRepliesSnapshot = await getCountFromServer(repliesRef);
+      comment.totalReplies = totalRepliesSnapshot.data().count;
+      comment.hasMoreReplies =
+        comment.totalReplies > (comment.replies?.length || 0);
+    }
+
+    return {
+      comments,
+      totalComments,
+      hasMore: totalComments > comments.length,
+    };
   }
 
   // Delete a comment
@@ -517,5 +537,120 @@ export class PostService {
         throw error;
       }
     });
+  }
+
+  // Add these methods after the existing ones
+  async likePost(postId: string, userId: string): Promise<void> {
+    const postRef = doc(this.firestore, 'posts', postId);
+    const likeRef = doc(this.firestore, `posts/${postId}/likes/${userId}`);
+
+    await runTransaction(this.firestore, async (transaction) => {
+      const postDoc = await transaction.get(postRef);
+      if (!postDoc.exists()) {
+        throw new Error('Post does not exist!');
+      }
+
+      const postData = postDoc.data();
+      const currentLikes = postData?.['stats']?.['likes'] || 0;
+
+      transaction.set(likeRef, {
+        userId,
+        createdAt: serverTimestamp(),
+      });
+
+      transaction.update(postRef, {
+        'stats.likes': currentLikes + 1,
+      });
+    });
+  }
+
+  async unlikePost(postId: string, userId: string): Promise<void> {
+    const postRef = doc(this.firestore, 'posts', postId);
+    const likeRef = doc(this.firestore, `posts/${postId}/likes/${userId}`);
+
+    await runTransaction(this.firestore, async (transaction) => {
+      const postDoc = await transaction.get(postRef);
+      if (!postDoc.exists()) {
+        throw new Error('Post does not exist!');
+      }
+
+      const postData = postDoc.data();
+      const currentLikes = postData?.['stats']?.['likes'] || 0;
+
+      transaction.delete(likeRef);
+
+      transaction.update(postRef, {
+        'stats.likes': Math.max(0, currentLikes - 1),
+      });
+    });
+  }
+
+  async isPostLikedByUser(postId: string, userId: string): Promise<boolean> {
+    const likeRef = doc(this.firestore, `posts/${postId}/likes/${userId}`);
+    const likeDoc = await getDoc(likeRef);
+    return likeDoc.exists();
+  }
+
+  async getPostLikeCount(postId: string): Promise<number> {
+    const postRef = doc(this.firestore, 'posts', postId);
+    const postDoc = await getDoc(postRef);
+    const postData = postDoc.data();
+    return postData?.['stats']?.['likes'] || 0;
+  }
+
+  async addReply(
+    postId: string,
+    commentId: string,
+    replyData: any
+  ): Promise<void> {
+    const postRef = doc(this.firestore, 'posts', postId);
+    const commentRef = doc(
+      this.firestore,
+      `posts/${postId}/comments`,
+      commentId
+    );
+    const repliesRef = collection(commentRef, 'replies');
+
+    await runTransaction(this.firestore, async (transaction) => {
+      const commentDoc = await transaction.get(commentRef);
+      if (!commentDoc.exists()) {
+        throw new Error('Comment does not exist!');
+      }
+
+      const replyRef = doc(repliesRef);
+      transaction.set(replyRef, {
+        ...replyData,
+        id: replyRef.id,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+    });
+  }
+
+  async getReplies(
+    postId: string,
+    commentId: string,
+    replyLimit: number = 2,
+    lastReply?: Comment
+  ): Promise<Comment[]> {
+    const repliesRef = collection(
+      this.firestore,
+      `posts/${postId}/comments/${commentId}/replies`
+    );
+    let q = query(repliesRef, orderBy('createdAt', 'desc'));
+
+    if (replyLimit > 0) {
+      q = query(q, firestoreLimit(replyLimit));
+    }
+
+    if (lastReply) {
+      q = query(q, startAfter(lastReply));
+    }
+
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map((doc) => ({
+      id: doc.id,
+      ...doc.data(),
+    })) as Comment[];
   }
 }
